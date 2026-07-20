@@ -1629,8 +1629,8 @@ function ContactForm() {
 
 const CORPORATE_DETAILS = [
   { l: "Email", v: "support@educhess.in" },
-  { l: "Primary Direct Hotline", v: "+91 98765 43210" },
-  { l: "HQ Location", v: "Champion Mind Cognitive Hub, Visakhapatnam, Andhra Pradesh, India" },
+  { l: "Primary Direct Hotline", v: "+91 8247564508" },
+  { l: "HQ Location", v: "Champion Chess Academy, Visakhapatnam, Andhra Pradesh, India" },
   { l: "Hours of Operation", v: "Mon – Sat: 9:00 AM – 8:00 PM IST" },
 ];
 
