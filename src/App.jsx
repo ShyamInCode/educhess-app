@@ -223,7 +223,7 @@ function Testimonials() {
 // "subjects" (Courses) and "quiz" are handled with bespoke nav behavior in NavBar.
 const NAV_LINKS = [
   { key: "subjects", label: "Courses" },
-  { key: "pricing", label: "Pricing", items: ["The Candidate Tier", "The Master Tier", "The Grandmaster Tier"] },
+  { key: "pricing", label: "Pricing", items: ["Basic Level", "Tournament Level", "Advanced Level"] },
   { key: "resources", label: "Resources", items: ["Quest Sheet Library", "Printable Worksheets"] },
   { key: "quiz", label: "Quiz" },
   { key: "contact", label: "Contact Us", items: ["Speak to a Growth Specialist", "Visakhapatnam HQ"] },
@@ -1244,45 +1244,43 @@ function CoursePage({ subjectKey, onBack }) {
 /* ---------- Pricing ---------- */
 const PRICING_TIERS = [
   {
-    name: "The Candidate Tier",
+    name: "Basic Level",
     medal: "🥉",
-    price: "₹999/mo",
+    price: "₹1,999/mo",
     tag: "Self-paced foundation",
     desc: "The perfect low-friction entry point for parents testing out the concept.",
     features: [
       "Pure chess curriculum",
-      "Class 1 to 4 Math & English integrated modules",
-      "Full interactive quest library",
-      "Digital curriculum mapping",
-      "Self-paced progress dashboard",
+      "Chess Board Explanation",
+      "Naming and Movement of Pieces",
+      "Puzzle Solving"
     ],
   },
   {
-    name: "The Master Tier",
+    name: "Tournament Level",
     medal: "🥈",
-    price: "₹1,999/mo",
+    price: "₹2,999/mo",
     tag: "Most popular",
     desc: "The complete core school accelerator — covers the entire standard school spectrum.",
     features: [
-      "Everything in the Candidate Tier",
-      "Full Class 5 to 10 comprehensive Math & English integrations",
-      "Advanced multi-variable dashboards",
-      "Personalized milestone progression tracking",
+      "Everything in the Basic Level",
+      "Tactics and Strategy",
+      "Opening game",
+      "End Game"
     ],
     highlight: true,
   },
   {
-    name: "The Grandmaster Tier",
+    name: "Advanced Level",
     medal: "🥇",
-    price: "₹3,499/mo",
+    price: "₹4,999/mo",
     tag: "Advanced future skills",
     desc: "The ultimate future-proof cognitive upgrade — for parents who want elite development.",
     features: [
-      "Everything in the Candidate & Master Tiers",
-      "Elite Future Skills: Unplugged Coding Logic",
-      "Tactical Money Management / Finance",
-      "24/7 Voice-Interactive AI Assisted Coach",
-      "Priority access to seasonal bootcamps",
+      "Everything in the Basic and Tournament Levels",
+      "Advanced Strategies",
+      "Middle game",
+      "Games Analysis"
     ],
   },
 ];
