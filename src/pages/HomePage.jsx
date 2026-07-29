@@ -1,20 +1,52 @@
 import React, { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../lib/AuthContext";
-import Chessboard, { initialBoard } from "../components/Chessboard";
+import Chessboard from "../components/Chessboard";
 import CountUp from "../components/CountUp";
+import Carousel from "../components/Carousel";
 import Testimonials from "../components/Testimonials";
 import ContactForm from "../components/ContactForm";
 import { CORPORATE_DETAILS, HOMEPAGE_VIDEO_PATH } from "../data/mockData";
 import { getPublicVideoUrl } from "../lib/media";
 import { useAutoplaySound } from "../lib/useAutoplaySound";
 
-export default function HomePage({ goTo }) {
+// The famous Scholar's Mate, one move before the finish: 1.e4 e5 2.Bc4 Nc6
+// 3.Qh5 Nf6?? — White plays Qxf7# next. Used as Quest 01's board so the
+// "winning move" the visitor plays is a real, historic checkmate.
+function scholarsMateBoard() {
+  const b = Array.from({ length: 8 }, () => Array(8).fill(null));
+  const F = { a: 0, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7 };
+  const set = (square, t, w) => {
+    const file = F[square[0]];
+    const rank = Number(square[1]);
+    b[8 - rank][file] = { t, w };
+  };
+  // Black
+  set("a8", "R", false); set("b8", "N", false); set("c8", "B", false); set("d8", "Q", false);
+  set("e8", "K", false); set("f8", "B", false); set("h8", "R", false);
+  set("a7", "P", false); set("b7", "P", false); set("c7", "P", false); set("d7", "P", false);
+  set("f7", "P", false); set("g7", "P", false); set("h7", "P", false);
+  set("c6", "N", false); set("f6", "N", false);
+  set("e5", "P", false);
+  // White
+  set("h5", "Q", true);
+  set("c4", "B", true); set("e4", "P", true);
+  set("a2", "P", true); set("b2", "P", true); set("c2", "P", true); set("d2", "P", true);
+  set("f2", "P", true); set("g2", "P", true); set("h2", "P", true);
+  set("a1", "R", true); set("b1", "N", true); set("c1", "B", true); set("e1", "K", true);
+  set("g1", "N", true); set("h1", "R", true);
+  return b;
+}
+
+export default function HomePage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const goTo = (page) => navigate(page === "home" ? "/" : `/${page}`);
   const [answer, setAnswer] = useState("");
   const [verified, setVerified] = useState(false);
   const [error, setError] = useState("");
-  const [liveBoard, setLiveBoard] = useState(initialBoard());
+  const [liveBoard, setLiveBoard] = useState(scholarsMateBoard());
   const [selected, setSelected] = useState(null);
   const [moveMade, setMoveMade] = useState(false);
   const heroVideoRef = useRef(null);
@@ -62,15 +94,15 @@ export default function HomePage({ goTo }) {
       {/* Hero — video + text only, visible without scrolling */}
       <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center min-h-[76vh]">
         <div>
-          <span className="font-mono text-xs tracking-[0.3em] text-[#34d399] uppercase">Chess & Education</span>
+          <span className="font-mono text-xs tracking-[0.3em] text-[#34d399] uppercase">Chess-First Academy</span>
           <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl leading-tight mt-4 text-[#e7ecf5]">
-            Two Boards, One Academy —{" "}
-            <span className="text-[#d4af37]">Chess Strategy and Academic Mastery, Together.</span>
+            Chess Is Our Game —{" "}
+            <span className="text-[#d4af37]">And We Teach Maths and English Too.</span>
           </h1>
           <p className="text-base text-[#93a1b8] mt-4 max-w-xl">
-            In collaboration with international FIDE players and IITians, EduChess runs a dual-pillar
-            program: a pure chess strategy track for tournament-ready players, and a chess-integrated
-            Maths & English track that turns school textbooks into a game worth winning.
+            In collaboration with international FIDE players and IITians, EduChess is built around one
+            primary course: tournament-ready chess strategy for every level. Alongside it, we run separate
+            Maths and English courses for students who want to keep building outside the board.
           </p>
           <button
             onClick={() => goTo("courses")}
@@ -106,7 +138,16 @@ export default function HomePage({ goTo }) {
             Pawn = 1, Knight = 3, Bishop = 3, Rook = 5, Queen = 9.<br />
             Solve for X: <span className="text-[#d4af37]">Queen = Rook + Bishop + X</span>
           </div>
-          <p className="text-[#93a1b8] text-sm mt-3">Once solved, find the winning move on the board to complete the quest!</p>
+          <p className="text-[#93a1b8] text-sm mt-3">
+            Once solved, play the historic <span className="text-[#d4af37] font-mono">Qxf7#</span> checkmate on
+            the board to complete the quest!
+          </p>
+          <p className="text-[#93a1b8] text-sm mt-3 leading-relaxed">
+            The position on the right is <span className="text-[#e7ecf5]">Scholar's Mate</span> — one of the
+            fastest checkmates in chess (1.e4 e5 2.Bc4 Nc6 3.Qh5 Nf6?? 4.Qxf7#). If Black doesn't defend the
+            f7 square in time, White's queen and bishop team up for an instant knockout. It's one of the
+            first tactical patterns every new student learns at the academy.
+          </p>
 
           <div className="mt-5 flex gap-3">
             <input
@@ -147,7 +188,7 @@ export default function HomePage({ goTo }) {
         <div className="bg-[#1e293b] border border-[#2d3b53] rounded-2xl p-6 shadow-xl flex flex-col items-center">
           <span className="font-mono text-xs text-[#d4af37] tracking-widest uppercase self-start">Quest 01 · The Board</span>
           <h2 className="font-display text-xl mt-2 mb-4 text-[#e7ecf5] self-start">
-            {verified ? (moveMade ? "Move complete" : "Select your piece, then its square") : "Locked"}
+            {verified ? (moveMade ? "Checkmate!" : "Play the queen to f7 for mate") : "Locked"}
           </h2>
           <div className="relative">
             <Chessboard board={liveBoard} selected={selected} onSquareClick={handleSquareClick} locked={!verified} />
@@ -160,6 +201,11 @@ export default function HomePage({ goTo }) {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Auto-advancing photo carousel — admin-managed via Admin Panel */}
+      <div className="mt-10">
+        <Carousel />
       </div>
 
       <div className="mt-10 grid sm:grid-cols-3 gap-5">

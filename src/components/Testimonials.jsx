@@ -1,17 +1,37 @@
 import React, { useEffect, useState } from "react";
-import { TESTIMONIALS } from "../data/mockData";
+import { supabase } from "../lib/supabaseClient";
 
 export default function Testimonials() {
+  const [testimonials, setTestimonials] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
 
   useEffect(() => {
-    if (paused) return;
-    const t = setInterval(() => setIndex((i) => (i + 1) % TESTIMONIALS.length), 4500);
-    return () => clearInterval(t);
-  }, [paused]);
+    let cancelled = false;
+    supabase
+      .from("testimonials")
+      .select("*")
+      .eq("published", true)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (!cancelled) {
+          setTestimonials(data || []);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const cur = TESTIMONIALS[index];
+  useEffect(() => {
+    if (paused || testimonials.length === 0) return;
+    const t = setInterval(() => setIndex((i) => (i + 1) % testimonials.length), 4500);
+    return () => clearInterval(t);
+  }, [paused, testimonials.length]);
+
+  const cur = testimonials[index];
 
   return (
     <div
@@ -22,22 +42,32 @@ export default function Testimonials() {
       <span className="font-mono text-sm text-[#d4af37] tracking-widest uppercase">From the Cohort</span>
       <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">What parents are saying</h2>
 
-      <div key={index} className="min-h-[110px]">
-        <div className="text-[#d4af37] text-base mb-3">{"★".repeat(cur.rating)}{"☆".repeat(5 - cur.rating)}</div>
-        <p className="text-[#e7ecf5] text-lg sm:text-xl leading-relaxed font-display">"{cur.quote}"</p>
-        <p className="text-base text-[#93a1b8] mt-4 font-mono">{cur.name} · {cur.role}</p>
-      </div>
+      {loading && <p className="text-[#93a1b8] text-base">Loading testimonials…</p>}
 
-      <div className="flex gap-2 mt-6">
-        {TESTIMONIALS.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => setIndex(i)}
-            aria-label={`Show testimonial ${i + 1}`}
-            className={`h-1.5 rounded-full transition-all ${i === index ? "w-6 bg-[#d4af37]" : "w-1.5 bg-[#2d3b53]"}`}
-          />
-        ))}
-      </div>
+      {!loading && testimonials.length === 0 && (
+        <p className="text-[#93a1b8] text-base">Testimonials from our families will appear here soon.</p>
+      )}
+
+      {!loading && cur && (
+        <>
+          <div key={index} className="min-h-[110px]">
+            <div className="text-[#d4af37] text-base mb-3">{"★".repeat(cur.rating)}{"☆".repeat(5 - cur.rating)}</div>
+            <p className="text-[#e7ecf5] text-lg sm:text-xl leading-relaxed font-display">"{cur.quote}"</p>
+            <p className="text-base text-[#93a1b8] mt-4 font-mono">{cur.name} · {cur.role}</p>
+          </div>
+
+          <div className="flex gap-2 mt-6">
+            {testimonials.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setIndex(i)}
+                aria-label={`Show testimonial ${i + 1}`}
+                className={`h-1.5 rounded-full transition-all ${i === index ? "w-6 bg-[#d4af37]" : "w-1.5 bg-[#2d3b53]"}`}
+              />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

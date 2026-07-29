@@ -1,9 +1,8 @@
 /* ============================================================
    EDUCHESS — Mock / static content
-   Brand positioning: "Chess & Education" — a dual-pillar academy
-   for pure chess strategy AND academic learning under one roof.
-   Coding and Financial Literacy have been retired; the platform
-   now covers exactly two pillars: Chess, and Education (Maths + English).
+   Brand positioning: Champion Chess Academy offers three separate
+   courses — Chess (the primary/flagship course), Maths, and English —
+   not a single merged "chess-integrated education" product.
    ============================================================ */
 
 /* ---------- Piece glyphs (shared by every board renderer) ---------- */
@@ -11,43 +10,38 @@ export const GLYPHS = { K: "♔", Q: "♕", R: "♖", B: "♗", N: "♘", P: "�
 export const GLYPHS_B = { K: "♚", Q: "♛", R: "♜", B: "♝", N: "♞", P: "♟" };
 
 /* ---------- Top nav ---------- */
-// "courses" and "quiz" get bespoke nav behavior in NavBar; everything else
-// is a simple dropdown of static items.
+// "courses" gets bespoke nav behavior in NavBar; everything else is a
+// simple button or a dropdown of static items. Practice is intentionally
+// not listed here — it renders as a permanent icon in NavBar instead.
 export const NAV_LINKS = [
+  { key: "about", label: "About" },
   { key: "courses", label: "Courses" },
-  { key: "pricing", label: "Pricing", items: ["Basic Level", "Tournament Level", "Advanced Level"] },
-  { key: "resources", label: "Resources", items: ["Quest Sheet Library", "Printable Worksheets"] },
-  { key: "quiz", label: "Quiz" },
-  { key: "practice", label: "Practice" },
+  { key: "resources", label: "Resources" },
+  { key: "puzzles", label: "Puzzles" },
+  { key: "tournaments", label: "Tournaments" },
   { key: "contact", label: "Contact Us", items: ["Speak to a Growth Specialist", "Visakhapatnam HQ"] },
 ];
 
 // Items shown in the Courses toggle dropdown — deep-link straight into
-// the relevant section/subject on the Courses page.
+// the relevant course on the Courses page. Chess is the primary/flagship
+// course; Maths and English are separate courses in their own right.
 export const COURSES_DROPDOWN = [
-  { key: "chess", label: "Chess", tag: "Pure strategy" },
-  { key: "maths", label: "Maths", tag: "Education" },
-  { key: "english", label: "English", tag: "Education" },
+  { key: "chess", label: "Chess", tag: "Primary Course" },
+  { key: "maths", label: "Maths", tag: "Course" },
+  { key: "english", label: "English", tag: "Course" },
 ];
 
-// Subject tiles used on My Learning / Quiz picker.
+// Subject tiles used on My Learning / Courses / Puzzles pickers.
 export const SUBJECT_TILES = [
-  { key: "chess", title: "Chess", sub: "Pure Strategy", icon: "♞" },
-  { key: "maths", title: "Maths", sub: "Chess-Integrated Education", icon: "♟" },
-  { key: "english", title: "English", sub: "Chess-Integrated Education", icon: "♝" },
-];
-
-// Which pillar each subject belongs to, used to drive the two-section
-// Courses page (Chess vs Education).
-export const EDUCATION_SUBJECTS = [
-  { key: "maths", title: "Maths", sub: "Chess-Integrated", icon: "♟" },
-  { key: "english", title: "English", sub: "Chess-Integrated", icon: "♝" },
+  { key: "chess", title: "Chess", sub: "Our Primary Course", icon: "♞" },
+  { key: "maths", title: "Maths", sub: "Course", icon: "♟" },
+  { key: "english", title: "English", sub: "Course", icon: "♝" },
 ];
 
 export const COURSE_TITLES = {
-  chess: "Chess — Pure Strategy",
-  maths: "Maths — Chess-Integrated Education",
-  english: "English — Chess-Integrated Education",
+  chess: "Chess",
+  maths: "Maths",
+  english: "English",
 };
 
 // Storage object paths (not local /public paths) — resolved to public
@@ -128,7 +122,7 @@ export const PRICING_TIERS = [
 /* ---------- Resources ---------- */
 export const RESOURCE_CATEGORIES = [
   {
-    cat: "Maths — Chess-Integrated Education",
+    cat: "Maths",
     icon: "♟",
     items: [
       { t: "Fractions Quest Sheet — Pack 1", type: "PDF · 12 pages" },
@@ -140,7 +134,7 @@ export const RESOURCE_CATEGORIES = [
     ],
   },
   {
-    cat: "English — Chess-Integrated Education",
+    cat: "English",
     icon: "♝",
     items: [
       { t: "Conditional Syntax Tactics", type: "PDF · 10 pages" },
@@ -152,7 +146,7 @@ export const RESOURCE_CATEGORIES = [
     ],
   },
   {
-    cat: "Pure Chess Strategy",
+    cat: "Chess",
     icon: "♞",
     items: [
       { t: "Opening Principles Quick-Reference", type: "PDF · 6 pages" },
@@ -173,7 +167,7 @@ export const TESTIMONIALS = [
 export const CORPORATE_DETAILS = [
   { l: "Email", v: "support@educhess.in" },
   { l: "Primary Direct Hotline", v: "+91 8247564508" },
-  { l: "HQ Location", v: "Champion Chess Academy, Visakhapatnam, Andhra Pradesh, India" },
+  { l: "HQ Location", v: "Champion Chess Academy, Gajuwaka, Visakhapatnam, Andhra Pradesh, India" },
   { l: "Hours of Operation", v: "Mon – Sat: 9:00 AM – 8:00 PM IST" },
 ];
 

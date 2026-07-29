@@ -1,9 +1,11 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { SUBJECT_TILES } from "../data/mockData";
 
 const PROGRESS_BY_KEY = { chess: 35, maths: 60, english: 20 };
 
-export default function MyLearningPage({ goTo }) {
+export default function MyLearningPage() {
+  const navigate = useNavigate();
   return (
     <div className="w-full max-w-7xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
       <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">Continue where you left off</span>
@@ -21,7 +23,7 @@ export default function MyLearningPage({ goTo }) {
               </div>
             </div>
             <button
-              onClick={() => goTo("courses", s.key)}
+              onClick={() => navigate(`/courses/${s.key}`)}
               className="shrink-0 px-4 py-2 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
             >
               Resume

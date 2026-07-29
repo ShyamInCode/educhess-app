@@ -29,3 +29,16 @@ export function getPublicVideoUrl(path) {
   const { data } = supabase.storage.from(VIDEO_BUCKET).getPublicUrl(path);
   return data?.publicUrl || null;
 }
+
+export const GALLERY_BUCKET = "gallery-images";
+export const CAROUSEL_BUCKET = "carousel-images";
+
+/**
+ * Same idea as getPublicVideoUrl, generalized to any public bucket —
+ * used for the About-page gallery and homepage carousel images.
+ */
+export function getPublicStorageUrl(bucket, path) {
+  if (!path) return null;
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data?.publicUrl || null;
+}

@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { FloatingPieces, CoordRail } from "./components/Decor";
 import NavBar from "./components/NavBar";
 import LiveTicker from "./components/LiveTicker";
 import HomePage from "./pages/HomePage";
+import AboutPage from "./pages/AboutPage";
 import CoursesPage from "./pages/CoursesPage";
 import PracticePage from "./pages/PracticePage";
 import AdminPage from "./pages/AdminPage";
-import PricingPage from "./pages/PricingPage";
 import ResourcesPage from "./pages/ResourcesPage";
-import QuizPage from "./pages/QuizPage";
+import PuzzlesPage from "./pages/PuzzlesPage";
+import TournamentsPage from "./pages/TournamentsPage";
 import DashboardPage from "./pages/DashboardPage";
 import MyLearningPage from "./pages/MyLearningPage";
 import ContactPage from "./pages/ContactPage";
@@ -45,12 +47,12 @@ const FONT_IMPORT = `
 const TRANSITION_GLYPHS = ["♔", "♕", "♖", "♗", "♘", "♙"];
 
 export default function App() {
-  const [activePage, setActivePage] = useState("home");
-  const [subjectDetail, setSubjectDetail] = useState(null);
   const [openDropdown, setOpenDropdown] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [transitionPiece, setTransitionPiece] = useState(null);
   const navRef = useRef(null);
+  const location = useLocation();
+  const isFirstRender = useRef(true);
 
   useEffect(() => {
     function onClick(e) {
@@ -63,14 +65,18 @@ export default function App() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  function goTo(page, detail = null) {
+  // Re-trigger the piece-slam transition whenever the route changes
+  // (skip the very first mount so we don't slam a piece on initial load).
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     const glyph = TRANSITION_GLYPHS[Math.floor(Math.random() * TRANSITION_GLYPHS.length)];
     setTransitionPiece({ glyph, id: Date.now() });
-    setActivePage(page);
-    setSubjectDetail(detail);
     setOpenDropdown(null);
     setProfileOpen(false);
-  }
+  }, [location.pathname]);
 
   return (
     <div className="h-screen w-full overflow-hidden relative bg-[#0f172a] text-[#e7ecf5] font-body flex flex-col">
@@ -181,23 +187,26 @@ export default function App() {
         setOpenDropdown={setOpenDropdown}
         profileOpen={profileOpen}
         setProfileOpen={setProfileOpen}
-        goTo={goTo}
-        activePage={activePage}
       />
 
       <LiveTicker />
 
-      <main key={subjectDetail ? `courses-${subjectDetail}` : activePage} className="page-enter relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-        {activePage === "home" && <HomePage goTo={goTo} />}
-        {activePage === "courses" && <CoursesPage subjectDetail={subjectDetail} />}
-        {activePage === "practice" && <PracticePage />}
-        {activePage === "admin" && <AdminPage />}
-        {activePage === "pricing" && <PricingPage />}
-        {activePage === "resources" && <ResourcesPage />}
-        {activePage === "quiz" && <QuizPage />}
-        {activePage === "dashboard" && <DashboardPage />}
-        {activePage === "mylearning" && <MyLearningPage goTo={goTo} />}
-        {activePage === "contact" && <ContactPage />}
+      <main key={location.pathname} className="page-enter relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/courses" element={<CoursesPage />} />
+          <Route path="/courses/:subject" element={<CoursesPage />} />
+          <Route path="/practice" element={<PracticePage />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/resources" element={<ResourcesPage />} />
+          <Route path="/puzzles" element={<PuzzlesPage />} />
+          <Route path="/tournaments" element={<TournamentsPage />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/mylearning" element={<MyLearningPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </main>
     </div>
   );

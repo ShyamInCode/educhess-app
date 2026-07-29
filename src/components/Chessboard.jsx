@@ -88,9 +88,19 @@ export default function Chessboard({
   // a hard cap so it doesn't balloon on very wide screens.
   const wrapperStyle = fluid ? { width: "min(100%, 78vh, 640px)" } : undefined;
 
+  // Fluid mode: the grid is pinned to fill the wrapper's exact (definite,
+  // already-square) box via `absolute inset-0` + explicit row/col tracks,
+  // instead of letting each cell's own `aspect-square` decide its height.
+  // Per-cell aspect-ratio inside an auto-sized grid is what caused the
+  // board to render with uneven/collapsing rows and drifting pieces —
+  // an explicit 8x8 track grid is rigid no matter what re-renders happen.
+  const gridClass = fluid
+    ? "absolute inset-0 grid grid-cols-8 grid-rows-[repeat(8,minmax(0,1fr))]"
+    : "grid grid-cols-8";
+
   return (
     <div className={wrapperClass} style={wrapperStyle}>
-      <div className="grid grid-cols-8">
+      <div className={gridClass}>
         {rowOrder.map((r) => {
           const colOrder = flipped ? [...resolvedBoard[r].keys()].reverse() : [...resolvedBoard[r].keys()];
           return colOrder.map((c) => {
@@ -105,7 +115,7 @@ export default function Chessboard({
                 disabled={disabled}
                 onClick={() => onSquareClick && onSquareClick(r, c, squareName(r, c))}
                 style={fluid ? { fontSize: "clamp(1.1rem, 7vw, 3.4rem)" } : undefined}
-                className={`${fluid ? "aspect-square w-full" : squareDim} flex items-center justify-center select-none transition-colors
+                className={`${fluid ? "w-full h-full" : squareDim} flex items-center justify-center select-none transition-colors
                   ${dark ? SQUARE_DARK : SQUARE_LIGHT}
                   ${isSel ? "ring-4 ring-inset ring-[#34d399]" : ""}
                   ${isHi ? "bg-[#d4af37]/50" : ""}

@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
 import AuthModal from "./AuthModal";
 import { NAV_LINKS, COURSES_DROPDOWN } from "../data/mockData";
 
-export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileOpen, setProfileOpen, goTo, activePage }) {
+export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileOpen, setProfileOpen }) {
   const { user, profile, signOut } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [authOpen, setAuthOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileSubOpen, setMobileSubOpen] = useState(null);
@@ -12,6 +15,12 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
   const displayName = profile?.name || user?.email || "";
   const initial = displayName ? displayName.charAt(0).toUpperCase() : "?";
   const isAdmin = profile?.role === "admin";
+  const activePage = location.pathname === "/" ? "home" : location.pathname.split("/")[1];
+
+  function goTo(page, detail = null) {
+    const path = page === "home" ? "/" : detail ? `/${page}/${detail}` : `/${page}`;
+    navigate(path);
+  }
 
   function mobileGoTo(page, detail) {
     setMobileMenuOpen(false);
@@ -60,7 +69,12 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
           {NAV_LINKS.map((l) => {
             if (l.key === "courses") {
               return (
-                <div key={l.key} className="relative flex items-center">
+                <div
+                  key={l.key}
+                  className="relative flex items-center"
+                  onMouseEnter={() => setOpenDropdown("courses")}
+                  onMouseLeave={() => setOpenDropdown((d) => (d === "courses" ? null : d))}
+                >
                   <button
                     onClick={() => goTo("courses")}
                     className={`pl-3 pr-1.5 py-2 text-base font-medium rounded-l-md transition-colors ${
@@ -102,7 +116,7 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
                 </div>
               );
             }
-            if (l.key === "quiz" || l.key === "practice" || l.key === "pricing" || l.key === "contact") {
+            if (l.key === "about" || l.key === "resources" || l.key === "puzzles" || l.key === "tournaments" || l.key === "contact") {
               return (
                 <button
                   key={l.key}
@@ -144,6 +158,23 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Practice is intentionally outside the collapsible nav — always
+              reachable as a standalone icon, even on mobile with the
+              hamburger collapsed. */}
+          <button
+            onClick={() => goTo("practice")}
+            aria-label="Practice vs Engine"
+            title="Practice vs Engine"
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-2 rounded-md border transition-colors shrink-0 ${
+              activePage === "practice"
+                ? "border-[#d4af37] text-[#d4af37] bg-[#1e293b]"
+                : "border-[#2d3b53] text-[#93a1b8] hover:text-[#e7ecf5] hover:border-[#d4af37]/50"
+            }`}
+          >
+            <span className="text-lg leading-none">♞</span>
+            <span className="hidden sm:inline text-sm font-medium">Practice</span>
+          </button>
+
           <div className="relative">
             {!user ? (
               <button
@@ -168,7 +199,6 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
                     </p>
                     <button onClick={() => goTo("dashboard")} className="w-full text-left px-3 py-2 text-base rounded-lg text-[#e7ecf5] hover:bg-[#0f172a]">Dashboard</button>
                     <button onClick={() => goTo("mylearning")} className="w-full text-left px-3 py-2 text-base rounded-lg text-[#e7ecf5] hover:bg-[#0f172a]">My Learning</button>
-                    <button onClick={() => goTo("practice")} className="w-full text-left px-3 py-2 text-base rounded-lg text-[#e7ecf5] hover:bg-[#0f172a]">Practice vs Engine</button>
                     {isAdmin && (
                       <button onClick={() => goTo("admin")} className="w-full text-left px-3 py-2 text-base rounded-lg text-[#d4af37] hover:bg-[#0f172a]">Admin Panel</button>
                     )}
@@ -239,7 +269,7 @@ export default function NavBar({ navRef, openDropdown, setOpenDropdown, profileO
                 </div>
               );
             }
-            if (l.key === "quiz" || l.key === "practice") {
+            if (l.key === "about" || l.key === "resources" || l.key === "puzzles" || l.key === "tournaments") {
               return (
                 <button
                   key={l.key}

@@ -3,6 +3,7 @@ import { Chess } from "chess.js";
 import Chessboard, { squareName } from "./Chessboard";
 import { ENGINE_LEVELS } from "../data/mockData";
 import { StockfishEngine, parseUciMove } from "../lib/stockfishEngine";
+import { playSoundForMove } from "../lib/sound";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -71,7 +72,8 @@ export default function StockfishPractice() {
       });
       const parsed = parseUciMove(uci);
       if (parsed) {
-        game.move({ from: parsed.from, to: parsed.to, promotion: parsed.promotion || "q" });
+        const engineMove = game.move({ from: parsed.from, to: parsed.to, promotion: parsed.promotion || "q" });
+        if (engineMove) playSoundForMove(engineMove);
       }
     } catch (err) {
       setEngineError("The engine failed to respond — try Reset Board.");
@@ -122,6 +124,7 @@ export default function StockfishPractice() {
       return;
     }
 
+    playSoundForMove(move);
     rerender();
     if (game.isGameOver()) {
       setStatus(describeGameOver(game));
