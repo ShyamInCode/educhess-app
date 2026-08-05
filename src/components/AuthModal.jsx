@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/AuthContext";
+import { TAB_METHODS, googleEnabled } from "../lib/authMethods";
 
 const FOCUSABLE =
   'button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -44,7 +45,9 @@ function GoogleMark() {
 
 export default function AuthModal({ open, onClose }) {
   const { signIn, signUp, signInWithGoogle, signInWithPhone, verifyPhoneOtp } = useAuth();
-  const [method, setMethod] = useState("email"); // "email" | "phone"
+  // "email" | "phone" | null. null means Google is the only method configured,
+  // so the modal is just the one button.
+  const [method, setMethod] = useState(TAB_METHODS[0] ?? null);
   const [mode, setMode] = useState("login"); // "login" | "signup" | "confirm"
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -154,7 +157,7 @@ export default function AuthModal({ open, onClose }) {
 
   function handleClose() {
     resetFields();
-    setMethod("email");
+    setMethod(TAB_METHODS[0] ?? null);
     setMode("login");
     setError("");
     setNotice("");
@@ -268,9 +271,11 @@ export default function AuthModal({ open, onClose }) {
       ? "Confirm your email"
       : method === "phone"
         ? "Sign in with phone"
-        : mode === "login"
-          ? "Log In"
-          : "Create Account";
+        : method === null
+          ? "Sign in to EduChess"
+          : mode === "login"
+            ? "Log In"
+            : "Create Account";
 
   return (
     /*
@@ -327,45 +332,57 @@ export default function AuthModal({ open, onClose }) {
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={google}
-              disabled={loading}
-              className="w-full flex items-center justify-center gap-3 py-3 rounded-lg bg-white text-[#1f1f1f] font-semibold text-base hover:bg-[#f1f3f4] transition-colors disabled:opacity-60"
-            >
-              <GoogleMark />
-              Continue with Google
-            </button>
+            {googleEnabled && (
+              <button
+                type="button"
+                onClick={google}
+                disabled={loading}
+                className="w-full flex items-center justify-center gap-3 py-3 rounded-lg bg-white text-[#1f1f1f] font-semibold text-base hover:bg-[#f1f3f4] transition-colors disabled:opacity-60"
+              >
+                <GoogleMark />
+                Continue with Google
+              </button>
+            )}
 
-            <div className="flex items-center gap-3 my-5" aria-hidden="true">
-              <span className="h-px flex-1 bg-[#2d3b53]" />
-              <span className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">or</span>
-              <span className="h-px flex-1 bg-[#2d3b53]" />
-            </div>
+            {/* Google-only is the default configuration, so this says what the
+                button gets you rather than leaving a lone button with no
+                context. See src/lib/authMethods.js for why. */}
+            {googleEnabled && method === null && (
+              <p className="text-sm text-[#93a1b8] mt-4 text-center">
+                One tap, no password to remember. We only ever see your name and email address.
+              </p>
+            )}
 
-            <div className="grid grid-cols-2 gap-2 mb-5" role="tablist" aria-label="Sign-in method">
-              {[
-                { key: "email", label: "Email" },
-                { key: "phone", label: "Phone" },
-              ].map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={method === t.key}
-                  onClick={() => switchMethod(t.key)}
-                  className={`py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                    method === t.key
-                      ? "border-[#d4af37] text-[#d4af37] bg-[#0f172a]"
-                      : "border-[#2d3b53] text-[#93a1b8] hover:text-[#e7ecf5]"
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            {googleEnabled && TAB_METHODS.length > 0 && (
+              <div className="flex items-center gap-3 my-5" aria-hidden="true">
+                <span className="h-px flex-1 bg-[#2d3b53]" />
+                <span className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">or</span>
+                <span className="h-px flex-1 bg-[#2d3b53]" />
+              </div>
+            )}
 
-            {method === "phone" ? (
+            {TAB_METHODS.length > 1 && (
+              <div className="grid grid-cols-2 gap-2 mb-5" role="tablist" aria-label="Sign-in method">
+                {TAB_METHODS.map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={method === key}
+                    onClick={() => switchMethod(key)}
+                    className={`py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                      method === key
+                        ? "border-[#d4af37] text-[#d4af37] bg-[#0f172a]"
+                        : "border-[#2d3b53] text-[#93a1b8] hover:text-[#e7ecf5]"
+                    }`}
+                  >
+                    {key === "phone" ? "Phone" : "Email"}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {method === null ? null : method === "phone" ? (
               <form onSubmit={phoneStep === "number" ? sendCode : confirmCode} className="space-y-4" noValidate>
                 <div>
                   <label htmlFor="auth-phone" className={LABEL_CLASS}>
