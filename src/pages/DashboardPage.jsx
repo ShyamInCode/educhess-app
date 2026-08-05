@@ -4,6 +4,7 @@ import { useAuth } from "../lib/AuthContext";
 import { supabase } from "../lib/supabaseClient";
 import { fetchPuzzleStats } from "../lib/puzzleProgress";
 import { CATEGORIES } from "../lib/puzzles";
+import { TIERS, nextTierAbove, tierName } from "../lib/tiers";
 
 /*
   The student's home.
@@ -310,6 +311,44 @@ function RegistrationsSection() {
   );
 }
 
+function PlanSection() {
+  const { profile, tier } = useAuth();
+  const upgrade = nextTierAbove(tier);
+  const expires = profile?.tier_expires_at ? new Date(profile.tier_expires_at) : null;
+
+  return (
+    <div className={CARD}>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="font-display text-2xl text-[#e7ecf5]">Your plan</h2>
+          <p className="text-base text-[#93a1b8] mt-1">
+            {TIERS[tier]?.medal} {tierName(tier)}
+            {" · "}
+            {TIERS[tier]?.dailyPuzzles === null
+              ? "unlimited puzzles"
+              : `${TIERS[tier]?.dailyPuzzles} puzzles a day`}
+          </p>
+          {/* Only shown for a live paid plan. An expired date on a lapsed
+              account reads as if the plan were still running. */}
+          {expires && tier !== "free" && (
+            <p className="text-sm text-[#93a1b8] mt-1 font-mono">
+              Renews or ends {expires.toLocaleDateString()}
+            </p>
+          )}
+        </div>
+        {upgrade && (
+          <Link
+            to="/upgrade"
+            className="shrink-0 px-4 py-2 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
+          >
+            Upgrade to {upgrade.name}
+          </Link>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user, profile } = useAuth();
 
@@ -335,6 +374,7 @@ export default function DashboardPage() {
       <p className="text-base text-[#93a1b8] mb-8">{greeting}</p>
 
       <div className="space-y-6">
+        <PlanSection />
         <ProgressSection />
         <RegistrationsSection />
         <ProfileSection />

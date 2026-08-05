@@ -1,7 +1,9 @@
-import React from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/AuthContext";
+import AuthModal from "../components/AuthModal";
 import { TIER_LIST, tierRank } from "../lib/tiers";
+import { paymentsEnabled, startUpgrade, waitForTier } from "../lib/razorpay";
 
 /*
   Membership comparison.
@@ -12,9 +14,10 @@ import { TIER_LIST, tierRank } from "../lib/tiers";
   derived from src/lib/tiers.js.
 */
 
-function TierCard({ tier, currentTier, signedIn }) {
+function TierCard({ tier, currentTier, signedIn, onBuy, busyTier, statusFor }) {
   const isCurrent = signedIn && currentTier === tier.key;
   const isBelow = signedIn && tierRank(tier.key) < tierRank(currentTier);
+  const status = statusFor(tier.key);
 
   return (
     <div
@@ -55,7 +58,18 @@ function TierCard({ tier, currentTier, signedIn }) {
           <p className="text-sm text-[#93a1b8] text-center py-2.5">Included in your plan.</p>
         ) : tier.amountPaise === 0 ? (
           <p className="text-sm text-[#93a1b8] text-center py-2.5">Free with any account.</p>
+        ) : paymentsEnabled ? (
+          <button
+            type="button"
+            onClick={() => onBuy(tier)}
+            disabled={!!busyTier}
+            className="block w-full text-center py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors disabled:opacity-60"
+          >
+            {busyTier === tier.key ? "Opening payment…" : `Get ${tier.name} — ${tier.price}${tier.priceNote}`}
+          </button>
         ) : (
+          /* No publishable key configured, so there is no honest "pay now"
+             button to show. Fall back to the thing that does work. */
           <Link
             to="/contact"
             className="block w-full text-center py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
@@ -63,13 +77,57 @@ function TierCard({ tier, currentTier, signedIn }) {
             Talk to us about {tier.name}
           </Link>
         )}
+
+        {status && (
+          <p className={`text-sm mt-3 ${status.type === "error" ? "text-[#f87171]" : "text-[#34d399]"}`}>
+            {status.msg}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
 export default function UpgradePage() {
-  const { user, tier } = useAuth();
+  const { user, profile, tier, refreshProfile } = useAuth();
+  const [busyTier, setBusyTier] = useState(null);
+  const [status, setStatus] = useState(null); // { tier, type, msg }
+  const [authOpen, setAuthOpen] = useState(false);
+
+  const statusFor = (key) => (status?.tier === key ? status : null);
+
+  async function buy(target) {
+    if (!user) {
+      setAuthOpen(true);
+      return;
+    }
+    setStatus(null);
+    setBusyTier(target.key);
+    try {
+      const result = await startUpgrade({ tier: target.key, profile, user });
+      if (result.status === "dismissed") {
+        setBusyTier(null);
+        return;
+      }
+      // Paid, as far as the browser knows. The membership itself is switched
+      // on by the signed webhook, so ask the server rather than celebrating.
+      setStatus({ tier: target.key, type: "ok", msg: "Payment received. Activating your plan…" });
+      const fresh = await waitForTier({ refreshProfile, expectedTier: target.key });
+      setBusyTier(null);
+      setStatus(
+        fresh
+          ? { tier: target.key, type: "ok", msg: `${target.name} is active. Enjoy.` }
+          : {
+              tier: target.key,
+              type: "error",
+              msg: "Your payment went through but the plan hasn't switched over yet. Refresh in a minute — if it still hasn't, contact us and we'll sort it out.",
+            }
+      );
+    } catch (e) {
+      setBusyTier(null);
+      setStatus({ tier: target.key, type: "error", msg: e.message || "Something went wrong." });
+    }
+  }
 
   return (
     <div className="w-full max-w-5xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
@@ -82,7 +140,15 @@ export default function UpgradePage() {
 
       <div className="grid md:grid-cols-3 gap-5">
         {TIER_LIST.map((t) => (
-          <TierCard key={t.key} tier={t} currentTier={tier} signedIn={!!user} />
+          <TierCard
+            key={t.key}
+            tier={t}
+            currentTier={tier}
+            signedIn={!!user}
+            onBuy={buy}
+            busyTier={busyTier}
+            statusFor={statusFor}
+          />
         ))}
       </div>
 
@@ -93,6 +159,8 @@ export default function UpgradePage() {
         </Link>
         .
       </p>
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }
