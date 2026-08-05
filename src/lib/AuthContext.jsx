@@ -1,60 +1,139 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 
 const AuthContext = createContext(null);
+
+const SESSION_ERROR = "Couldn't reach the login service. Try reloading the page.";
+const PROFILE_ERROR = "Couldn't load your profile, so some details may be out of date.";
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
 
   // Load the current session once, then keep listening for changes
   // (login, logout, token refresh) anywhere in the app.
+  //
+  // The `.catch`/`.finally` are not optional: without them a network failure
+  // inside getSession() leaves `loading` true forever and every guarded route
+  // sits on "Checking access…" with no way out.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    let cancelled = false;
+
+    supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setAuthError(SESSION_ERROR);
+        setSession(data?.session ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setAuthError(SESSION_ERROR);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      setAuthError("");
     });
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
-  // Whenever the logged-in user changes, pull their row from `profiles`.
+  const userId = session?.user?.id ?? null;
+
+  const loadProfile = useCallback(async () => {
+    if (!userId) return { data: null, error: null };
+    return supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  }, [userId]);
+
+  // Pull the logged-in user's row from `profiles`.
+  //
+  // On error we deliberately *keep* whatever profile we already had. Blanking
+  // it on a failed fetch quietly demotes an admin mid-session and hides the
+  // admin panel, which reads as a permissions bug rather than a network blip.
   useEffect(() => {
-    const userId = session?.user?.id;
     if (!userId) {
       setProfile(null);
-      return;
+      return undefined;
     }
     let cancelled = false;
-    supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (!cancelled) setProfile(data);
-      });
+    loadProfile().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setAuthError(PROFILE_ERROR);
+        return;
+      }
+      setProfile(data);
+    });
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [userId, loadProfile]);
 
-  async function signUp(email, password, name) {
+  /**
+   * Re-read the profile row and return it.
+   *
+   * Call this after anything that changes server-side state the UI shows —
+   * awarding quest points, for instance, which otherwise flashes "+10" while
+   * the visible total stays at 0 until a hard reload.
+   */
+  const refreshProfile = useCallback(async () => {
+    const { data, error } = await loadProfile();
+    if (error) {
+      setAuthError(PROFILE_ERROR);
+      return null;
+    }
+    setProfile(data);
+    return data;
+  }, [loadProfile]);
+
+  async function signUp(email, password, name, consent = false) {
     const { error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { name } },
+      // `consent` is read by handle_new_user() to stamp profiles.consent_at,
+      // so a parent who ticked the box on sign-up isn't asked again.
+      options: { data: { name, consent } },
     });
     return { error };
   }
 
   async function signIn(email, password) {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
+  }
+
+  /**
+   * Google OAuth. This navigates away from the SPA and comes back to
+   * `window.location.origin` with the tokens in the URL; supabase-js's default
+   * `detectSessionInUrl` consumes them and fires onAuthStateChange, which the
+   * effect above is already listening to. So there is nothing to await here
+   * beyond a failure to *start* the redirect.
+   */
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
+    });
+    return { error };
+  }
+
+  /** Send a 6-digit SMS code. `phone` must be in E.164 form, e.g. +919876543210. */
+  async function signInWithPhone(phone) {
+    const { error } = await supabase.auth.signInWithOtp({ phone });
+    return { error };
+  }
+
+  /** Exchange the SMS code for a session. */
+  async function verifyPhoneOtp(phone, token) {
+    const { error } = await supabase.auth.verifyOtp({ phone, token, type: "sms" });
     return { error };
   }
 
@@ -67,8 +146,13 @@ export function AuthProvider({ children }) {
     user: session?.user ?? null,
     profile,
     loading,
+    authError,
+    refreshProfile,
     signUp,
     signIn,
+    signInWithGoogle,
+    signInWithPhone,
+    verifyPhoneOtp,
     signOut,
   };
 

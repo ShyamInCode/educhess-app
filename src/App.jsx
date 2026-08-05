@@ -1,19 +1,23 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { FloatingPieces, CoordRail } from "./components/Decor";
+import ErrorBoundary from "./components/ErrorBoundary";
+import Footer from "./components/Footer";
+import RequireAuth from "./components/RequireAuth";
 import NavBar from "./components/NavBar";
-import LiveTicker from "./components/LiveTicker";
+import ProfileCompletionDialog from "./components/ProfileCompletionDialog";
 import HomePage from "./pages/HomePage";
 import AboutPage from "./pages/AboutPage";
 import CoursesPage from "./pages/CoursesPage";
 import PracticePage from "./pages/PracticePage";
 import AdminPage from "./pages/AdminPage";
-import ResourcesPage from "./pages/ResourcesPage";
+import WorkshopsPage from "./pages/WorkshopsPage";
 import PuzzlesPage from "./pages/PuzzlesPage";
 import TournamentsPage from "./pages/TournamentsPage";
 import DashboardPage from "./pages/DashboardPage";
 import MyLearningPage from "./pages/MyLearningPage";
 import ContactPage from "./pages/ContactPage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 /* ============================================================
    EDUCHESS — "Chess & Education"
@@ -46,11 +50,14 @@ const FONT_IMPORT = `
 
 const TRANSITION_GLYPHS = ["♔", "♕", "♖", "♗", "♘", "♙"];
 
+const FOOTER_ROUTES = new Set(["/", "/about", "/contact", "/tournaments", "/workshops"]);
+
 export default function App() {
   const [openDropdown, setOpenDropdown] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [transitionPiece, setTransitionPiece] = useState(null);
   const navRef = useRef(null);
+  const mainRef = useRef(null);
   const location = useLocation();
   const isFirstRender = useRef(true);
 
@@ -78,8 +85,37 @@ export default function App() {
     setProfileOpen(false);
   }, [location.pathname]);
 
+  // Replay the page-enter animation and reset scroll on navigation.
+  //
+  // This used to be `<main key={location.pathname}>`, which threw away and
+  // rebuilt the entire tree on every route change purely to restart a CSS
+  // animation — that amplified every uncleared timer and in-flight fetch in
+  // the app. Restarting the animation directly (remove class, force reflow,
+  // re-add) achieves the same visual with no remount.
+  useLayoutEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    el.scrollTop = 0;
+    el.classList.remove("page-enter");
+    void el.offsetWidth; // force reflow so the animation restarts
+    el.classList.add("page-enter");
+  }, [location.pathname]);
+
+  /*
+    Pages that get a footer.
+
+    Deliberately a short allow-list rather than "everywhere". The footer is a
+    marketing surface: it belongs at the end of pages a visitor reads, and gets
+    in the way on the ones they *use* (courses, puzzles, practice) where the
+    content is a tool and the page already ends in controls.
+  */
+  const showFooter = FOOTER_ROUTES.has(location.pathname);
+
+  // h-[100dvh], not h-screen: on iOS/Android `100vh` is the height with the
+  // URL bar *hidden*, so the bottom of the app sat under the browser chrome
+  // until the user scrolled. `dvh` tracks the actual visible viewport.
   return (
-    <div className="h-screen w-full overflow-hidden relative bg-[#0f172a] text-[#e7ecf5] font-body flex flex-col">
+    <div className="h-[100dvh] w-full overflow-hidden relative bg-[#0f172a] text-[#e7ecf5] font-body flex flex-col">
       <style>{`
         ${FONT_IMPORT}
         .font-display { font-family: 'Cinzel', serif; }
@@ -189,25 +225,48 @@ export default function App() {
         setProfileOpen={setProfileOpen}
       />
 
-      <LiveTicker />
-
-      <main key={location.pathname} className="page-enter relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-thin">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/courses" element={<CoursesPage />} />
-          <Route path="/courses/:subject" element={<CoursesPage />} />
-          <Route path="/practice" element={<PracticePage />} />
-          <Route path="/admin" element={<AdminPage />} />
-          <Route path="/resources" element={<ResourcesPage />} />
-          <Route path="/puzzles" element={<PuzzlesPage />} />
-          <Route path="/tournaments" element={<TournamentsPage />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/mylearning" element={<MyLearningPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      <main ref={mainRef} className="page-enter relative z-10 flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+        {/* Scoped to the route outlet so a page that throws leaves the nav
+            usable; resetKey clears the error card once the visitor moves on. */}
+        <ErrorBoundary resetKey={location.pathname}>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/courses" element={<CoursesPage />} />
+            <Route path="/courses/:subject" element={<CoursesPage />} />
+            <Route path="/practice" element={<PracticePage />} />
+            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/workshops" element={<WorkshopsPage />} />
+            <Route path="/puzzles" element={<PuzzlesPage />} />
+            <Route path="/tournaments" element={<TournamentsPage />} />
+            <Route
+              path="/dashboard"
+              element={
+                <RequireAuth>
+                  <DashboardPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/mylearning"
+              element={
+                <RequireAuth>
+                  <MyLearningPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </ErrorBoundary>
+        {/* Inside <main> because that is the scroll container: outside it the
+            footer would be pinned to the viewport on every page. */}
+        {showFooter && <Footer />}
       </main>
+
+      {/* App-root, not per-page: Google and phone sign-in can complete on any
+          route, and the profile they create has no grade and no consent. */}
+      <ProfileCompletionDialog />
     </div>
   );
 }
