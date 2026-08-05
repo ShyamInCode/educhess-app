@@ -28,7 +28,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 */
 const PRICES: Record<string, { amountPaise: number; label: string }> = {
   pro: { amountPaise: 199900, label: "EduChess Pro — 1 month" },
-  academy: { amountPaise: 499900, label: "EduChess Academy — 1 month" },
+  academy: { amountPaise: 399900, label: "EduChess Academy — 1 month" },
 };
 
 const CORS = {

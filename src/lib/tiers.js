@@ -56,9 +56,9 @@ export const TIERS = {
     key: "academy",
     name: "Academy",
     medal: "🥇",
-    price: "₹4,999",
+    price: "₹3,999",
     priceNote: "/mo",
-    amountPaise: 499900,
+    amountPaise: 399900,
     // null = unlimited
     dailyPuzzles: null,
     tag: "The full programme",
