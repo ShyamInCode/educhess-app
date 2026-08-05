@@ -1,79 +1,51 @@
 import { supabase } from "./supabaseClient";
 
 /* ============================================================
-   Puzzle progress + the anonymous daily cap
+   Puzzle progress and the daily allowance.
    ------------------------------------------------------------
-   Two separate things live here on purpose:
+   Puzzles are now behind sign-in, and the allowance is a property of the
+   account's tier rather than of the browser:
 
-   1. Signed-in students get their attempts recorded in `puzzle_attempts`
-      and read back by the `puzzle_stats()` RPC.
+     free     5 a day
+     pro      50 a day
+     academy  unlimited
 
-   2. Anonymous visitors get a soft cap of 5 puzzles a day, counted in
-      localStorage. This is a CONVERSION NUDGE, not a security boundary —
-      clearing site data or opening a private window resets it, and that
-      is fine. Enforcing it server-side would mean fingerprinting children,
-      which we are not going to do for a free puzzle trainer.
+   The earlier version counted anonymous puzzles in localStorage. That is
+   gone: it was a nudge that anyone could clear, and there is nothing to
+   nudge now — you cannot reach a puzzle without an account.
+
+   The numbers are NOT decided here. tier_daily_puzzles() decides them,
+   enforce_puzzle_quota refuses attempts past the limit, and
+   random_puzzles_for_user() refuses to hand out a batch. Everything below
+   is either a read of that state or a display of it.
    ============================================================ */
 
-export const ANON_DAILY_LIMIT = 5;
-
-const USAGE_KEY = "educhess.puzzleUsage";
-
-/** Local calendar day, e.g. "2026-08-05". Local, because the cap is a UX rule. */
-function todayKey() {
-  const d = new Date();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${d.getFullYear()}-${month}-${day}`;
+/** Does this error mean "you have used today's puzzles"? */
+export function isQuotaError(error) {
+  return /PUZZLE_QUOTA_REACHED/.test(error?.message || "");
 }
 
 /**
- * Read today's anonymous usage as `{ date, count }`.
+ * Read the signed-in student's allowance.
  *
- * A stored entry from a previous day is treated as zero rather than reset in
- * place: reads happen during render, and writing there would be a side effect.
- * The stale row is overwritten by the next `recordAnonPuzzle()`.
+ * Shape: `{ tier, daily_limit, used_today, remaining }`, where a null
+ * `daily_limit` (and null `remaining`) means unlimited. Throws so the caller
+ * can tell "couldn't read it" apart from "you have none left" — they lead to
+ * completely different screens.
  */
-export function readAnonUsage() {
-  const today = todayKey();
-  try {
-    const raw = localStorage.getItem(USAGE_KEY);
-    if (!raw) return { date: today, count: 0 };
-    const parsed = JSON.parse(raw);
-    if (!parsed || parsed.date !== today) return { date: today, count: 0 };
-    const count = Number(parsed.count);
-    return { date: today, count: Number.isFinite(count) && count > 0 ? count : 0 };
-  } catch {
-    // Corrupt JSON, or storage blocked entirely (Safari private mode throws
-    // on read in some versions). Treat as a fresh day — never block on this.
-    return { date: today, count: 0 };
-  }
-}
-
-/** Count one concluded puzzle against today's anonymous allowance. */
-export function recordAnonPuzzle() {
-  const next = { date: todayKey(), count: readAnonUsage().count + 1 };
-  try {
-    localStorage.setItem(USAGE_KEY, JSON.stringify(next));
-  } catch {
-    // Storage full or blocked. The visitor gets unlimited puzzles; that is a
-    // far better failure than a trainer that refuses to load.
-  }
-  return next.count;
-}
-
-/** How many free puzzles an anonymous visitor has left today. */
-export function anonPuzzlesLeft() {
-  return Math.max(0, ANON_DAILY_LIMIT - readAnonUsage().count);
+export async function fetchPuzzleQuota() {
+  const { data, error } = await supabase.rpc("puzzle_quota");
+  if (error) throw error;
+  return data ?? { tier: "free", daily_limit: 5, used_today: 0, remaining: 5 };
 }
 
 /**
- * Record a concluded puzzle for a signed-in student.
+ * Record a concluded puzzle.
  *
- * Deliberately fire-and-forget. A logging failure — offline, RLS not yet
- * migrated, a dropped request — must never interrupt the puzzle the child is
- * solving, so nothing here is awaited by the caller and every error ends as a
- * console warning.
+ * Deliberately fire-and-forget. A logging failure — offline, a dropped
+ * request, or the quota trigger disagreeing with the client's count by one —
+ * must never interrupt the puzzle the child is solving, so nothing here is
+ * awaited and every error ends as a console warning.
  */
 export function logPuzzleAttempt({ userId, puzzleId, solved, category, difficulty }) {
   if (!userId || !puzzleId) return;

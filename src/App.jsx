@@ -14,6 +14,7 @@ import AdminPage from "./pages/AdminPage";
 import WorkshopsPage from "./pages/WorkshopsPage";
 import PuzzlesPage from "./pages/PuzzlesPage";
 import TournamentsPage from "./pages/TournamentsPage";
+import UpgradePage from "./pages/UpgradePage";
 import DashboardPage from "./pages/DashboardPage";
 import MyLearningPage from "./pages/MyLearningPage";
 import ContactPage from "./pages/ContactPage";
@@ -50,7 +51,7 @@ const FONT_IMPORT = `
 
 const TRANSITION_GLYPHS = ["♔", "♕", "♖", "♗", "♘", "♙"];
 
-const FOOTER_ROUTES = new Set(["/", "/about", "/contact", "/tournaments", "/workshops"]);
+const FOOTER_ROUTES = new Set(["/", "/about", "/contact", "/tournaments", "/workshops", "/upgrade"]);
 
 export default function App() {
   const [openDropdown, setOpenDropdown] = useState(null);
@@ -237,7 +238,21 @@ export default function App() {
             <Route path="/practice" element={<PracticePage />} />
             <Route path="/admin" element={<AdminPage />} />
             <Route path="/workshops" element={<WorkshopsPage />} />
-            <Route path="/puzzles" element={<PuzzlesPage />} />
+            {/* Puzzles are now membership-gated, not a free anonymous funnel:
+                the allowance belongs to the account, so there has to be one. */}
+            <Route
+              path="/puzzles"
+              element={
+                <RequireAuth
+                  eyebrow="Free to join"
+                  title="Sign in to start solving"
+                  blurb="Puzzles come with an EduChess account. The free one costs nothing, takes one tap with Google, and gives your child five puzzles a day."
+                >
+                  <PuzzlesPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/upgrade" element={<UpgradePage />} />
             <Route path="/tournaments" element={<TournamentsPage />} />
             <Route
               path="/dashboard"

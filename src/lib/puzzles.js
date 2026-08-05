@@ -91,7 +91,10 @@ export function normalizeLichessPuzzle(row) {
 export async function fetchPuzzles(categoryKey, difficultyKey, limit = 20) {
   const band = DIFFICULTIES.find((d) => d.key === difficultyKey) || DIFFICULTIES[1];
 
-  const { data, error } = await supabase.rpc("random_puzzles", {
+  // random_puzzles_for_user, not random_puzzles: the wrapper checks the
+  // caller's daily allowance before handing out a batch, and direct EXECUTE
+  // on the sampling function is revoked (see migration_phase8_tiers.sql).
+  const { data, error } = await supabase.rpc("random_puzzles_for_user", {
     p_themes: [categoryKey],
     p_min_rating: band.min,
     p_max_rating: band.max,

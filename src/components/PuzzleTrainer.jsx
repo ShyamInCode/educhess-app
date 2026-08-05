@@ -1,17 +1,13 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Chess } from "chess.js";
 import Chessboard, { squareName } from "./Chessboard";
-import AuthModal from "./AuthModal";
+import { Link } from "react-router-dom";
 import { tryMove } from "../lib/chessMoves";
 import { playSoundForMove } from "../lib/sound";
 import { fetchPuzzles, CATEGORIES } from "../lib/puzzles";
 import { useAuth } from "../lib/AuthContext";
-import {
-  ANON_DAILY_LIMIT,
-  anonPuzzlesLeft,
-  logPuzzleAttempt,
-  recordAnonPuzzle,
-} from "../lib/puzzleProgress";
+import { fetchPuzzleQuota, isQuotaError, logPuzzleAttempt } from "../lib/puzzleProgress";
+import { nextTierAbove, tierName } from "../lib/tiers";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -34,15 +30,18 @@ function shuffle(arr) {
 }
 
 export default function PuzzleTrainer({ category, difficulty, onBack }) {
-  const { user, loading: authLoading } = useAuth();
+  const { user, tier } = useAuth();
   const [queue, setQueue] = useState([]);
   const [pos, setPos] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [solvedCount, setSolvedCount] = useState(0);
-  const [limitReached, setLimitReached] = useState(false);
-  const [freeLeft, setFreeLeft] = useState(ANON_DAILY_LIMIT);
-  const [authOpen, setAuthOpen] = useState(false);
+  // { tier, daily_limit, used_today, remaining }; daily_limit null = unlimited.
+  const [quota, setQuota] = useState(null);
+  // Set when the SERVER refuses — either the batch request or, in principle,
+  // an attempt insert. Kept separate from the local count so a client that has
+  // drifted still ends up showing the right screen.
+  const [quotaBlocked, setQuotaBlocked] = useState(false);
 
   const gameRef = useRef(null);
   // Whether the student has already played a wrong move on the CURRENT puzzle.
@@ -108,9 +107,12 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
         // Server-side random sampling — a fresh batch every mount, so
         // reopening never "resumes" the same handful of puzzles.
         data = await fetchPuzzles(category, difficulty, 20);
-      } catch {
+      } catch (e) {
         if (!cancelled) {
-          setError("Couldn't load puzzles. Please try again in a moment.");
+          // "You've used today's puzzles" is not a failure and must not be
+          // reported as one — it gets the upgrade card, not an error message.
+          if (isQuotaError(e)) setQuotaBlocked(true);
+          else setError("Couldn't load puzzles. Please try again in a moment.");
           setLoading(false);
         }
         return;
@@ -135,19 +137,25 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, difficulty]);
 
-  // The anonymous daily cap. Held off until auth has resolved: during that
-  // first tick `user` is null for everyone, and locking the board there would
-  // greet a signed-in student with the sign-up overlay.
+  // Today's allowance for this account. Read once per session of the trainer
+  // and then tracked locally as puzzles conclude; the database is still the
+  // one that decides, this is only so the header can count down without a
+  // round trip after every puzzle.
   useEffect(() => {
-    if (authLoading) return;
-    if (user) {
-      setLimitReached(false);
-      return;
-    }
-    const left = anonPuzzlesLeft();
-    setFreeLeft(left);
-    setLimitReached(left <= 0);
-  }, [user, authLoading]);
+    let cancelled = false;
+    fetchPuzzleQuota()
+      .then((q) => {
+        if (!cancelled) setQuota(q);
+      })
+      .catch((e) => {
+        // A quota read that fails must not lock a paying member out of the
+        // board. The server refuses anything genuinely over the limit.
+        if (!cancelled) console.warn("[EduChess] couldn't read the puzzle allowance:", e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function goToNextPuzzle() {
     // A new puzzle, so the "did they need a retry?" flag starts clean. This
@@ -167,34 +175,29 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     }
   }
 
-  /**
-   * A puzzle has just been finished. Signed-in students get it recorded;
-   * anonymous ones get it counted against today's free allowance, which may
-   * raise the overlay.
-   */
+  /** A puzzle has just been finished: record it and count it against today. */
   function concludePuzzle() {
-    if (user) {
-      logPuzzleAttempt({
-        userId: user.id,
-        puzzleId: puzzle?.id,
-        // A puzzle that took a retry is not "solved" — see missedRef.
-        solved: !missedRef.current,
-        category,
-        difficulty,
-      });
-      return;
-    }
-    const left = Math.max(0, ANON_DAILY_LIMIT - recordAnonPuzzle());
-    setFreeLeft(left);
-    if (left <= 0) setLimitReached(true);
+    logPuzzleAttempt({
+      userId: user?.id,
+      puzzleId: puzzle?.id,
+      // A puzzle that took a retry is not "solved" — see missedRef.
+      solved: !missedRef.current,
+      category,
+      difficulty,
+    });
+    setQuota((q) =>
+      q && q.daily_limit !== null
+        ? { ...q, used_today: q.used_today + 1, remaining: Math.max(0, (q.remaining ?? 0) - 1) }
+        : q
+    );
   }
 
   function advance() {
     setSolvedCount((c) => c + 1);
     concludePuzzle();
-    // Load the next puzzle even when the cap has just been hit: it sits ready
-    // behind the overlay, so signing in resumes solving instead of stranding
-    // the student on a board they have already finished.
+    // Load the next puzzle even when the allowance has just run out: it sits
+    // ready behind the overlay, so an upgrade resumes solving instead of
+    // stranding the student on a board they have already finished.
     goToNextPuzzle();
   }
 
@@ -308,6 +311,53 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
   const sideToMove = puzzle?.solverColor === "b" ? "Black" : "White";
   const title = stageRef.current === 0 ? `${sideToMove} to move` : "Find your next move";
 
+  const unlimited = quota ? quota.daily_limit === null : false;
+  const remaining = quota?.remaining ?? null;
+  const outOfPuzzles = quotaBlocked || (!!quota && !unlimited && remaining <= 0);
+  const upgrade = nextTierAbove(tier);
+
+  /* Shared by the two places the allowance runs out: before a batch is
+     fetched (no board to show) and after the last puzzle of the day (board
+     still on screen, covered). Same words either way. */
+  const outOfPuzzlesCard = (
+    <div className="max-w-xs text-center">
+      <span className="text-4xl block mb-3 text-[#d4af37]">♛</span>
+      <h2 className="font-display text-xl text-[#e7ecf5]">That's today's puzzles</h2>
+      <p className="text-sm text-[#93a1b8] mt-2">
+        {upgrade
+          ? `Your ${tierName(tier)} plan includes ${quota?.daily_limit ?? ""} puzzles a day. ${upgrade.name} gives you ${
+              upgrade.dailyPuzzles === null ? "unlimited puzzles" : `${upgrade.dailyPuzzles} a day`
+            }${upgrade.key === "pro" ? " and the basic course videos" : " and every course video"}.`
+          : "Come back tomorrow for a fresh set."}
+      </p>
+      {upgrade && (
+        <Link
+          to="/upgrade"
+          className="mt-5 block w-full py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
+        >
+          See {upgrade.name}
+        </Link>
+      )}
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-2 w-full py-2 text-sm text-[#93a1b8] hover:text-[#e7ecf5]"
+      >
+        Back to puzzles
+      </button>
+    </div>
+  );
+
+  // Ran out before we ever got a board — nothing to cover, so this stands alone.
+  if (outOfPuzzles && !puzzle) {
+    return (
+      <div>
+        <button onClick={onBack} className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5">← Back to Puzzles</button>
+        <div className="flex justify-center py-10">{outOfPuzzlesCard}</div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <button onClick={onBack} className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5">← Back to Puzzles</button>
@@ -320,9 +370,11 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
         </div>
         <div className="text-right">
           <span className="font-mono text-sm text-[#d4af37] block">Solved: {solvedCount}</span>
-          {!user && !authLoading && !limitReached && (
+          {quota && !outOfPuzzles && (
             <span className="font-mono text-xs text-[#93a1b8] block mt-1">
-              {freeLeft} free {freeLeft === 1 ? "puzzle" : "puzzles"} left today
+              {unlimited
+                ? `${tierName(tier)} · unlimited`
+                : `${remaining} of ${quota.daily_limit} left today`}
             </span>
           )}
         </div>
@@ -335,47 +387,24 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
           onSquareClick={handleSquareClick}
           selected={selected}
           highlights={legalTargets}
-          interactionDisabled={!!feedback || limitReached}
+          interactionDisabled={!!feedback || outOfPuzzles}
           // Show the board from the student's side — ~half of Lichess puzzles
           // are solved as Black.
           flipped={puzzle?.solverColor === "b"}
         />
 
-        {/* The daily-cap card. Sits over the board rather than replacing it so
-            the visitor can still see what they were doing — the point is to
-            invite a sign-in, not to slam a door. */}
-        {limitReached && (
+        {/* Sits over the board rather than replacing it, so the student can
+            still see the position they just finished. The point is to make
+            the next tier legible, not to slam a door. */}
+        {outOfPuzzles && (
           <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-[#0f172a]/90 backdrop-blur-sm p-4">
-            <div className="max-w-xs text-center">
-              <span className="text-4xl block mb-3 text-[#d4af37]">♛</span>
-              <h2 className="font-display text-xl text-[#e7ecf5]">
-                You've used today's free puzzles
-              </h2>
-              <p className="text-sm text-[#93a1b8] mt-2">
-                Sign in for unlimited puzzles and progress tracking — streaks, totals and what
-                you've solved by category.
-              </p>
-              <button
-                type="button"
-                onClick={() => setAuthOpen(true)}
-                className="mt-5 w-full py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
-              >
-                Sign in — it's free
-              </button>
-              <button
-                type="button"
-                onClick={onBack}
-                className="mt-2 w-full py-2 text-sm text-[#93a1b8] hover:text-[#e7ecf5]"
-              >
-                Back to puzzles
-              </button>
-            </div>
+            {outOfPuzzlesCard}
           </div>
         )}
       </div>
 
       <div className="text-center mt-4 h-6">
-        {feedback === "correct" && !limitReached && (
+        {feedback === "correct" && !outOfPuzzles && (
           <p className="text-[#34d399] font-mono text-sm">Correct! Next puzzle…</p>
         )}
         {feedback === "wrong" && <p className="text-[#f87171] font-mono text-sm">Not quite. Try again.</p>}
@@ -384,14 +413,12 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
       <div className="flex justify-center mt-2">
         <button
           onClick={skip}
-          disabled={!!feedback || limitReached}
+          disabled={!!feedback || outOfPuzzles}
           className="px-5 py-2 rounded-lg border border-[#2d3b53] text-[#93a1b8] text-sm font-semibold hover:border-[#d4af37]/50 hover:text-[#e7ecf5] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Skip → Next Puzzle
         </button>
       </div>
-
-      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }
