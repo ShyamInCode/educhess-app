@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { effectiveTier } from "./tiers";
 
 const AuthContext = createContext(null);
 
@@ -145,6 +146,10 @@ export function AuthProvider({ children }) {
     session,
     user: session?.user ?? null,
     profile,
+    // Expiry applied, so consumers never have to remember to check
+    // tier_expires_at. Display and gating only — the database enforces the
+    // puzzle quota itself.
+    tier: effectiveTier(profile),
     loading,
     authError,
     refreshProfile,

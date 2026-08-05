@@ -12,6 +12,8 @@
    else in the site copy.
    ============================================================ */
 
+import { TIER_LIST } from "../lib/tiers";
+
 /* ---------- Piece glyphs (shared by every board renderer) ---------- */
 // Both colours render from these solid/filled shapes; the hollow "white"
 // unicode glyphs disappear on light squares. See Chessboard.jsx.
@@ -110,33 +112,25 @@ export const COURSE_VIDEOS = {
 export const HOMEPAGE_VIDEO_PATH = "homepage.mp4";
 
 /* ---------- Pricing ---------- */
-export const PRICING_TIERS = [
-  {
-    name: "Basic Level",
-    medal: "🥉",
-    price: "₹1,999/mo",
-    tag: "Self-paced foundation",
-    desc: "The perfect low-friction entry point for parents testing out the concept.",
-    features: ["Pure chess curriculum", "Chess Board Explanation", "Naming and Movement of Pieces", "Puzzle Solving"],
-  },
-  {
-    name: "Tournament Level",
-    medal: "🥈",
-    price: "₹2,999/mo",
-    tag: "Most popular",
-    desc: "For students ready to play rated games and compete.",
-    features: ["Everything in the Basic Level", "Tactics and Strategy", "Opening game", "End Game"],
-    highlight: true,
-  },
-  {
-    name: "Advanced Level",
-    medal: "🥇",
-    price: "₹4,999/mo",
-    tag: "Advanced future skills",
-    desc: "For committed players working towards serious tournament results.",
-    features: ["Everything in the Basic and Tournament Levels", "Advanced Strategies", "Middle game", "Games Analysis"],
-  },
-];
+/*
+  The three membership tiers, for the pricing cards.
+
+  Derived from src/lib/tiers.js rather than written out again here: the same
+  three tiers now decide puzzle allowances and course access, and a price card
+  that disagreed with what the account actually grants is worse than no card.
+  The old Basic / Tournament / Advanced ladder maps onto Free / Pro / Academy,
+  with the curriculum lines kept.
+*/
+export const PRICING_TIERS = TIER_LIST.map((t) => ({
+  key: t.key,
+  name: t.name,
+  medal: t.medal,
+  price: `${t.price}${t.priceNote}`,
+  tag: t.tag,
+  desc: t.desc,
+  features: t.features,
+  highlight: t.highlight,
+}));
 
 export const CORPORATE_DETAILS = [
   { l: "Email", v: "support@educhess.in" },
