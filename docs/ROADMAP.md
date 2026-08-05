@@ -6,14 +6,30 @@ Prioritised and executable. Each phase is ~one focused session. Read
 Legend: **[!]** = do not defer · **[db]** = needs a migration run manually in
 the Supabase SQL editor · **[be]** = needs the Python backend
 
+> **Shipped since this file was last revised** (see `docs/SYSTEM-OVERVIEW.md`
+> for the current state, which is authoritative):
+> Google OAuth sign-in and parental consent · branded transactional email via
+> Resend + Edge Function · puzzle attempt tracking and a tier-based daily
+> allowance, enforced in the database · workshops schema, public page and
+> admin tab · the missing admin UPDATE policies · server-side capacity and
+> deadline enforcement · a real student dashboard · **Free / Pro / Academy
+> membership with Razorpay checkout**.
+>
+> **[be] no longer implies the FastAPI service.** Several things this file
+> assumed needed it were built on Supabase Edge Functions instead, which the
+> project was already using. The FastAPI service in `backend/` remains written
+> and undeployed, and nothing shipped depends on it.
+
 ---
 
-## P0 — Security (do this first, today)
+## P0 — Security (do this first, today) — ✅ MOSTLY DONE
 
 Found by audit. Exploitable right now with only the anon key from the public JS
 bundle.
 
-- **[!][db] P0-1 — Run `supabase/migration_security_fixes.sql`.** Covers:
+- **[!][db] P0-1 — ✅ DONE. `supabase/migration_security_fixes.sql` has been
+  run** against the live project (verified: `is_admin()` exists and returns
+  false for anon). Covers:
   - **C1 (critical):** any signed-up user could run
     `update profiles set role='admin'` from the browser console and gain read
     access to every enquiry and tournament registration (children's names,
@@ -30,14 +46,20 @@ bundle.
   (a) `select * from profiles` returns only your own row, (b)
   `update profiles set role='admin'` fails, (c) the app still loads, the
   contact form still submits, and puzzle points still award.
-- **[!] P0-3 — Course videos are sold but served free.** `videos` is
-  `select using (true)` and `course-videos` is a public CDN bucket, while
-  `PRICING_TIERS` sells ₹1,999–₹4,999/mo access. Anyone can enumerate and
-  download the whole lesson library logged out.
-  **DECIDED: videos are paid, with a few free previews.** Full fix is P4.5
-  (needs the backend for signed URLs). Interim mitigation if revenue is being
-  lost today: mark the intended-free videos and restrict the rest at the RLS
-  level, accepting that the bucket URLs remain guessable until P4.5 lands.
+- **[!] P0-3 — STILL OPEN, and now the most commercially significant item in
+  this file.** `videos` is `select using (true)` and `course-videos` is a
+  public CDN bucket. Course access is now a thing people **pay for** — Pro
+  ₹1,999/mo and Academy ₹3,999/mo are sold partly on it — so the gap has gone
+  from theoretical to a live revenue leak.
+  What exists today is `course_chapters.min_tier`, which padlocks a chapter in
+  the UI. That is an honesty box: the CDN URL is still fetchable from the
+  network tab while signed out. `CourseDetail.jsx` and
+  `migration_phase8_tiers.sql` both say so in comments; do not let anyone
+  describe it as DRM.
+  **Fix:** flip the bucket to private and issue short-lived signed URLs after
+  checking the caller's tier against `min_tier`. A Supabase Edge Function can
+  do this — the FastAPI service does **not** have to be deployed first, which
+  is what previously blocked it.
 - ✅ **P0-4 — Points were client-authoritative. RESOLVED BY REMOVAL.** The
   browser sent its own `points` value and a `security definer` trigger added it
   verbatim. **DECIDED: the points system is gone** — all `rank_points` displays
@@ -103,9 +125,10 @@ box + `object-cover`.
 
 ## P2 — Content integrity (no backend needed)
 
-Fabricated numbers on a site selling ₹1,999–₹4,999/mo are a trust and
-advertising-standards problem, not a cosmetic one. Most of this phase is
-deletions.
+Fabricated numbers on a site selling ₹1,999–₹3,999/mo are a trust and
+advertising-standards problem, not a cosmetic one — and more so now that the
+site takes the money itself rather than routing to a conversation. Most of
+this phase is deletions.
 
 - **[!] P2-1 — Fake statistics, and they contradict each other.**
   `HomePage.jsx:226-231` claims 4,870 students / 96% parent satisfaction /
@@ -412,39 +435,63 @@ exercises the forced-reply timer.
 
 ---
 
-## P5 — Workshops (no backend needed) [db]
+## P5 — Workshops (no backend needed) [db] — ✅ SHIPPED, SIMPLER THAN PLANNED
 
-- **P5-1 — Schema:** `workshops` (template) → `workshop_sessions` (dated
-  occurrences) → `workshop_registrations`.
-- **P5-2 — `meeting_url` must not be publicly readable** or strangers can join a
-  live class of children. Gate it behind a registration row.
-- **P5-3 — "LIVE NOW" computed server-side** from `starts_at`/`ends_at`, not the
-  browser clock.
-- **P5-4 — Recurring Sundays:** a scheduled job materialises the next 8 sessions
-  from the template. Don't build RRULE expansion yet.
-- **P5-5 — Public page + admin tab + registration form** (reuse the tournament
-  registration pattern, including the P0-1 insert-policy hardening).
+- **P5-1 — ✅ DONE, but two tables not three.** Shipped as `workshops` +
+  `workshop_registrations`, mirroring tournaments exactly. The
+  `workshop_sessions` layer was dropped: it only earns its keep once
+  recurrence exists (P5-4), and a template with no occurrences would have been
+  a second concept for the admin to learn for no present benefit. Add it when
+  recurrence lands — the registration FK moves from `workshop_id` to
+  `session_id` at that point, which is the one real cost of deferring.
+- **P5-2 — N/A for now.** There is no `meeting_url` column; an online workshop
+  puts its platform in `venue`, which **is** publicly readable. So do not put
+  a live joining link in `venue` for a children's class — the original warning
+  stands, it has just moved. Sending the link by email after registration is
+  what the confirmation email is for. A gated `meeting_url` should land with
+  P5-4.
+- **P5-3 — Not built.** No "LIVE NOW" badge. When it is built, compute it
+  server-side as originally specified.
+- **P5-4 — Not built.** No recurrence, no scheduled job. This project still
+  has no cron. Admins create each workshop by hand.
+- **P5-5 — ✅ DONE.** Public page, admin tab and registration form, sharing
+  `EventCard` / `EventRegistrationForm` / `AdminEvents` with tournaments,
+  including the P0-1 insert-policy hardening (forged-`user_id` guard, published
+  + deadline check, length caps, unique entry index) and server-side capacity
+  enforcement.
 
 ---
 
-## P4.5 — Paid content & Razorpay [be][db]
+## P4.5 — Paid content & Razorpay [db] — ⚠️ PARTLY SHIPPED
 
-**Backend (P3) is a hard prerequisite.** Payment verification cannot happen in
-the browser — see P4.5-3.
+**The backend prerequisite turned out not to be one.** Both halves that need a
+server — creating an order with the key secret, and verifying the webhook
+signature — are Supabase Edge Functions (`razorpay-order`,
+`razorpay-webhook`). FastAPI was never involved. Deployment notes live in
+`supabase/functions/RAZORPAY.md`.
+
+**What shipped is subscription-shaped, not per-item.** The plan below assumed
+you buy *a course* or *a tournament entry*. What exists is a monthly
+membership — Free / Pro / Academy — that grants a puzzle allowance and course
+chapters. Tournament and workshop fees are still collected offline; the `fee`
+column remains free text. Read the two designs as alternatives, not stages.
 
 ### Entitlements
 
-- **[db] P4.5-1 — `videos.is_free boolean default false`.** A handful of free
-  videos stay public; everything else is gated. Admin gets a "Free preview"
-  toggle in `AdminVideos`.
-- **[db] P4.5-2 — `entitlements`** (`user_id`, `scope` = course category or
-  `'all'`, `source` = purchase/manual/comp, `starts_at`, `expires_at`).
-  Instructors can grant manually for offline-paid students — important, because
-  many parents will pay by UPI/cash in person, not through the site.
-- **P4.5-3 — Flip `course-videos` to a private bucket.** Paid content on a
-  public CDN is not sellable (this is P0-3). Backend issues a short-lived signed
-  URL only after checking `is_free` OR a live entitlement. Free videos can keep
-  a public path for speed.
+- **[db] P4.5-1 — ✅ DONE differently.** Gating is per *chapter*, not per
+  video: `course_chapters.min_tier` ∈ free/pro/academy, with a selector in
+  the admin Videos tab. Marking a chapter `free` is the "free preview" idea.
+- **[db] P4.5-2 — ✅ DONE differently.** No `entitlements` table. Access is
+  `profiles.tier` + `tier_expires_at`, resolved by `current_tier()` with
+  expiry applied at read time. Manual grants for parents who pay in person —
+  which the original note rightly called important — are the Members tab in
+  the admin panel, backed by `admin_set_tier()`.
+  Revisit a real `entitlements` table if you ever sell a single course
+  outright, or need per-course rather than per-tier access.
+- **[!] P4.5-3 — STILL OPEN. This is P0-3 and it is now urgent.**
+  `course-videos` is still a public bucket, so what the tiers sell is not
+  actually protected. An Edge Function issuing signed URLs after a
+  `min_tier` check is the fix, and no longer blocked on anything.
 
 ### Admin experience (requested)
 
@@ -474,36 +521,57 @@ automatically.
 
 ### Razorpay — security essentials, do not shortcut
 
-- **P4.5-4 — `key_secret` lives ONLY on the server.** `key_id` is public and may
-  ship in the bundle. If the secret ever reaches the frontend, anyone can forge
-  payments.
-- **[!] P4.5-5 — Verify the signature server-side.** On checkout success the
-  browser returns `razorpay_order_id`, `razorpay_payment_id`,
-  `razorpay_signature`. The backend must recompute
-  `HMAC_SHA256(order_id + "|" + payment_id, key_secret)` and compare. **Never
-  grant access based on the browser saying "payment succeeded"** — that is the
-  #1 way Razorpay integrations get exploited.
-- **P4.5-6 — Webhook as source of truth.** Implement `/webhooks/razorpay`
-  (`payment.captured`, `payment.failed`, `refund.processed`), verify the webhook
-  signature with the webhook secret, and make the handler **idempotent** —
-  Razorpay retries, and double-crediting an entitlement is a real risk. The
-  browser callback is a UX convenience; the webhook is what actually grants
-  access.
-- **[db] P4.5-7 — `payment_orders`** (`id`, `razorpay_order_id`,
-  `razorpay_payment_id`, `user_id`, `purpose` ∈ course/tournament/workshop,
-  `target_id`, `amount_paise`, `currency`, `status`, `signature_verified`,
-  `raw_payload jsonb`, timestamps). Amount is **integer paise** — never floats
-  for money. RLS: users read their own; no client writes at all (backend uses
-  the service role).
-- **P4.5-8 — Server computes the amount.** The client sends *what* it's buying,
-  never *how much*. Otherwise a user pays ₹1 for a ₹4,999 course.
-- **P4.5-9 — Wire the three purchase paths:** course purchase → entitlement;
-  tournament registration → mark registration paid; workshop registration →
-  mark paid. Registrations should be created `pending` and flipped to
-  `confirmed` by the webhook.
-- **P4.5-10 — Compliance:** Razorpay's India onboarding needs a registered
-  business entity, and the site needs Terms, Refund/Cancellation, Privacy, and
-  Contact pages before activation. Budget time for this; it gates go-live.
+- **P4.5-4 — ✅ DONE.** `RAZORPAY_KEY_SECRET` is a Supabase secret, read only
+  inside `razorpay-order`. `VITE_RAZORPAY_KEY_ID` (publishable) is the only
+  half in the bundle; blank it and the upgrade buttons fall back to a contact
+  link rather than showing a button that cannot work.
+- **[!] P4.5-5 / P4.5-6 — ✅ DONE, webhook only.** The browser's success
+  callback grants nothing at all — the app does not even check its signature,
+  because it never acts on it. `razorpay-webhook` verifies the HMAC over the
+  **raw** request body (parsing and re-serialising would change the bytes and
+  fail every check), with a constant-time compare, then calls
+  `record_razorpay_payment()`. That function locks the row and returns early
+  if the order is already paid, so Razorpay's retries and its duplicate
+  `payment.captured` / `order.paid` pair cannot buy two months.
+  `refund.processed` is **not** handled — see the remaining work below.
+- **[db] P4.5-7 — ✅ DONE as `payments`.** Same idea, membership-shaped:
+  `tier` and `months` instead of `purpose`/`target_id`. Amount is integer
+  paise. RLS lets users read their own and admins read all, with **no INSERT
+  or UPDATE policy at all** — every write is service-role, because a client
+  that could write here could grant itself a membership. `raw_payload jsonb`
+  was not kept; add it if you ever need to reconcile against Razorpay.
+- **P4.5-8 — ✅ DONE.** The client sends `{ tier }` and nothing else. The
+  amount comes from a `PRICES` table inside `razorpay-order`, which must be
+  kept in step with `src/lib/tiers.js` — the file the customer sees. Both
+  files carry a comment saying so.
+- **P4.5-9 — Not applicable as written.** There is one purchase path, the
+  membership. Tournament and workshop registrations are still free to submit
+  and their fees are settled offline; nothing is created `pending`.
+- **P4.5-10 — Compliance: STILL REQUIRED and gates go-live.** Razorpay's India
+  onboarding needs a registered business entity, and the site needs Terms,
+  Refund/Cancellation, Privacy and Contact pages. Contact exists; the other
+  three do not. The privacy policy also carries the DPDP obligation —
+  `profiles.consent_at` records that consent was given, which is not the same
+  as telling anyone what you do with the data.
+
+### Remaining payment work
+
+- **Refunds.** No `refund.processed` handling and no admin refund action. A
+  refund today means refunding in the Razorpay dashboard and then setting the
+  member back to Free in the admin Members tab, by hand, in two places.
+- **Renewal.** A month is bought at a time; nothing charges the card again and
+  nothing warns a member that they are about to lapse. Razorpay Subscriptions
+  would replace the one-shot order flow if you want true auto-renewal.
+- **Lapse notice.** Expiry is applied silently at read time. A member loses
+  access with no email and no in-app warning. The `send-email` function is
+  already deployed and could carry this, but it is webhook-driven and there is
+  no cron to trigger a "your plan ends in three days" job.
+- **QR / Payment Links.** The original plan wanted a printable, WhatsApp-able
+  fixed-amount QR for parents who pay offline. Standard Checkout shipped
+  instead. The QR shown inside Checkout is **not** that — in test mode it is
+  not a real UPI address at all, and scanning it with a real app correctly
+  reports an invalid VPA. If offline QR sharing matters, that is the Payment
+  Links or QR Code API, and it is still unbuilt.
 
 ---
 

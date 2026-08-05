@@ -5,7 +5,9 @@ import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
 import { supabase } from "../lib/supabaseClient";
 import { getPublicStorageUrl, GALLERY_BUCKET } from "../lib/media";
-import { CORPORATE_DETAILS, PRICING_TIERS } from "../data/mockData";
+import { CORPORATE_DETAILS } from "../data/mockData";
+import PlanCard, { usePlanCheckout } from "../components/PlanCard";
+import { TIER_LIST } from "../lib/tiers";
 
 const fadeUp = {
   hidden: { opacity: 0, y: 24 },
@@ -41,6 +43,7 @@ export default function AboutPage() {
   const [galleryImages, setGalleryImages] = useState([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
   const [galleryError, setGalleryError] = useState("");
+  const checkout = usePlanCheckout();
 
   useEffect(() => {
     let cancelled = false;
@@ -170,36 +173,33 @@ export default function AboutPage() {
         >
           Programs &amp; Pricing
         </motion.h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          {PRICING_TIERS.map((t, i) => (
+        {/* The same cards and the same checkout as /upgrade. This block used
+            to end in "Enquire About This Tier" pointing at the contact form,
+            which was two different answers to one question once /upgrade
+            could actually take the money. The motion wrapper carries only the
+            animation now; the card brings its own styling. */}
+        <div className="grid md:grid-cols-3 gap-6 items-stretch">
+          {TIER_LIST.map((t, i) => (
             <motion.div
-              key={t.name}
+              key={t.key}
               initial="hidden"
               whileInView="visible"
               viewport={{ once: true, amount: 0.3 }}
               variants={fadeUp}
               transition={{ duration: 0.45, delay: i * 0.1 }}
-              className={`rounded-2xl p-6 border flex flex-col ${
-                t.highlight ? "bg-panel border-gold shadow-2xl scale-[1.02]" : "bg-panel/70 border-line"
-              }`}
             >
-              <span className="font-mono text-sm uppercase tracking-widest text-brand-emerald">{t.tag}</span>
-              <h3 className="font-display text-2xl mt-2 text-ink">{t.medal} {t.name}</h3>
-              <p className="font-mono text-3xl text-gold mt-3">{t.price}</p>
-              <p className="text-base text-ink-dim mt-3 flex-1">{t.desc}</p>
-              <ul className="mt-4 space-y-2">
-                {t.features.map((f) => (
-                  <li key={f} className="text-base text-ink flex gap-2"><span className="text-gold">♟</span>{f}</li>
-                ))}
-              </ul>
-              <Button asChild variant={t.highlight ? "default" : "outline"} className="mt-6 w-full">
-                <Link to="/contact" aria-label={`Enquire about the ${t.name} tier`}>
-                  Enquire About This Tier
-                </Link>
-              </Button>
+              <PlanCard tier={t} checkout={checkout} />
             </motion.div>
           ))}
         </div>
+        <p className="text-sm text-ink-dim mt-6">
+          Plans cover what your child uses on the site. Coaching at either academy is arranged in
+          person and billed separately —{" "}
+          <Link to="/contact" className="text-brand-emerald hover:text-[#6ee7b7]">
+            talk to us about coaching
+          </Link>
+          .
+        </p>
       </div>
 
       <motion.div
@@ -223,6 +223,10 @@ export default function AboutPage() {
           </Button>
         </div>
       </motion.div>
+
+      {/* A signed-out visitor who clicks "Get Pro" needs an account before
+          there is anyone to sell a membership to. */}
+      {checkout.authModal}
     </div>
   );
 }
