@@ -22,6 +22,7 @@ export default function AdminVideos() {
   const [recentVideos, setRecentVideos] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
   const [deletingChapter, setDeletingChapter] = useState(null); // chapter id currently being deleted
+  const [savingTier, setSavingTier] = useState(null); // chapter id whose min_tier is being saved
   const [chapterError, setChapterError] = useState("");
 
   async function loadChapters(forCategory) {
@@ -110,6 +111,27 @@ export default function AdminVideos() {
     } finally {
       setDeletingChapter(null);
     }
+  }
+
+  /**
+   * Change which membership a chapter needs.
+   *
+   * A real UPDATE, which only works once migration_phase5_admin_update_policies
+   * has run — course_chapters had no UPDATE policy before it.
+   */
+  async function handleChapterTier(chapter, minTier) {
+    setChapterError("");
+    setSavingTier(chapter.id);
+    const { error } = await supabase
+      .from("course_chapters")
+      .update({ min_tier: minTier })
+      .eq("id", chapter.id);
+    setSavingTier(null);
+    if (error) {
+      setChapterError(error.message || "Couldn't change that chapter's tier.");
+      return;
+    }
+    await loadChapters(category);
   }
 
   function handleChapterSelect(e) {
@@ -287,13 +309,31 @@ export default function AdminVideos() {
           {chapters.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-4 bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl px-4 py-3">
               <p className="text-base text-[#e7ecf5] truncate">{c.title}</p>
-              <button
-                onClick={() => handleDeleteChapter(c)}
-                disabled={deletingChapter === c.id}
-                className="shrink-0 px-3 py-1.5 rounded-lg text-sm font-semibold text-[#f87171] border border-[#f87171]/40 hover:bg-[#f87171]/10 transition-colors disabled:opacity-50"
-              >
-                {deletingChapter === c.id ? "Deleting…" : "Delete"}
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Which membership this chapter needs. Chapters default to
+                    'pro'; set one to 'free' to give visitors a taster. */}
+                <label htmlFor={`chapter-tier-${c.id}`} className="sr-only">
+                  Minimum tier for {c.title}
+                </label>
+                <select
+                  id={`chapter-tier-${c.id}`}
+                  value={c.min_tier || "pro"}
+                  onChange={(e) => handleChapterTier(c, e.target.value)}
+                  disabled={savingTier === c.id}
+                  className="bg-[#0f172a] border border-[#2d3b53] rounded-lg px-2 py-1.5 text-sm text-[#e7ecf5] focus:outline-none focus:ring-2 focus:ring-[#d4af37] disabled:opacity-50"
+                >
+                  <option value="free">Free</option>
+                  <option value="pro">Pro</option>
+                  <option value="academy">Academy</option>
+                </select>
+                <button
+                  onClick={() => handleDeleteChapter(c)}
+                  disabled={deletingChapter === c.id}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-[#f87171] border border-[#f87171]/40 hover:bg-[#f87171]/10 transition-colors disabled:opacity-50"
+                >
+                  {deletingChapter === c.id ? "Deleting…" : "Delete"}
+                </button>
+              </div>
             </div>
           ))}
         </div>

@@ -1,10 +1,24 @@
 import React, { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { COURSE_TITLES, COURSE_VIDEOS } from "../data/mockData";
 import { getPublicVideoUrl } from "../lib/media";
 import { useAutoplaySound } from "../lib/useAutoplaySound";
+import { useAuth } from "../lib/AuthContext";
+import { tierAllows, tierName } from "../lib/tiers";
+
+/*
+  NOTE on what the padlock is and is not.
+
+  Chapter locks are a UI boundary. `videos` is world-readable and the
+  course-videos bucket is public, so anyone reading the network tab can still
+  fetch a locked video's CDN URL. Making this a real boundary needs signed
+  URLs — the open item in docs/SYSTEM-OVERVIEW.md §9. Do not describe this as
+  DRM to anyone; it is a paywall in the sense that a newspaper honesty box is.
+*/
 
 export default function CourseDetail({ subjectKey, onBack }) {
+  const { user, tier } = useAuth();
   const [expanded, setExpanded] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [videosByChapter, setVideosByChapter] = useState({});
@@ -81,19 +95,44 @@ export default function CourseDetail({ subjectKey, onBack }) {
           )}
           {chapters.map((ch, i) => {
             const chapterVideos = videosByChapter[ch.title] || [];
+            const required = ch.min_tier || "pro";
+            const locked = !tierAllows(tier, required);
             return (
               <div key={ch.id} className="bg-[#1e293b] border border-[#2d3b53] rounded-xl overflow-hidden">
                 <button
                   onClick={() => setExpanded(expanded === i ? null : i)}
                   className="w-full flex items-center justify-between px-5 py-4 text-left gap-4"
                 >
-                  <p className="font-display text-base sm:text-lg text-[#e7ecf5]">{ch.title}</p>
+                  <p className={`font-display text-base sm:text-lg ${locked ? "text-[#93a1b8]" : "text-[#e7ecf5]"}`}>
+                    {locked && <span aria-hidden="true" className="mr-2">🔒</span>}
+                    {ch.title}
+                  </p>
                   <span className="flex items-center gap-3 shrink-0">
-                    <span className="font-mono text-xs text-[#93a1b8]">{chapterVideos.length} video{chapterVideos.length === 1 ? "" : "s"}</span>
+                    {locked ? (
+                      <span className="font-mono text-xs uppercase tracking-wide text-[#d4af37] border border-[#d4af37]/40 rounded-full px-2 py-0.5">
+                        {tierName(required)}
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs text-[#93a1b8]">{chapterVideos.length} video{chapterVideos.length === 1 ? "" : "s"}</span>
+                    )}
                     <span className={`font-mono text-xl text-[#d4af37] transition-transform ${expanded === i ? "rotate-45" : ""}`}>+</span>
                   </span>
                 </button>
-                {expanded === i && (
+                {expanded === i && locked && (
+                  <div className="px-5 pb-4">
+                    <p className="text-sm text-[#93a1b8]">
+                      {chapterVideos.length} video{chapterVideos.length === 1 ? "" : "s"} in this chapter,
+                      included with {tierName(required)}.
+                    </p>
+                    <Link
+                      to="/upgrade"
+                      className="inline-block mt-3 px-4 py-2 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
+                    >
+                      {user ? `Upgrade to ${tierName(required)}` : `See ${tierName(required)}`}
+                    </Link>
+                  </div>
+                )}
+                {expanded === i && !locked && (
                   <div className="px-5 pb-4">
                     {chapterVideos.length === 0 ? (
                       <p className="text-sm text-[#93a1b8]">No videos uploaded to this chapter yet.</p>
