@@ -1,56 +1,79 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { supabase } from "../lib/supabaseClient";
+import EventCard from "../components/EventCard";
 
 /*
   Workshops.
 
-  There is no `workshops` table yet (ROADMAP P5), so this page describes the
-  formats and routes people to the contact form rather than listing invented
-  sessions with invented dates. Once the schema and admin tab exist, the
-  static list below becomes a query and the "ask us" call to action becomes a
-  registration form.
+  Until Phase 4 this page was static copy describing four formats, because
+  there was no `workshops` table. It is now the same shape as Tournaments:
+  published, upcoming rows from the database, each with its own registration
+  form. The "ask us" call to action stays at the bottom — schools and groups
+  still book by talking to someone.
 */
-const FORMATS = [
-  {
-    title: "Weekend intensives",
-    body: "A half day on one theme, usually openings or endgames, with a coach working through positions on the board.",
-  },
-  {
-    title: "School sessions",
-    body: "We run introductory chess sessions at schools around Visakhapatnam, from a single assembly to a full term.",
-  },
-  {
-    title: "Simuls and guest sessions",
-    body: "One strong player against many students at once. The fastest way for a beginner to learn how a stronger player thinks.",
-  },
-  {
-    title: "Tournament preparation",
-    body: "Short courses before local events: time management, opening choices, and playing under a clock.",
-  },
-];
-
 export default function WorkshopsPage() {
+  const [workshops, setWorkshops] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from("workshops")
+      .select("*")
+      .eq("published", true)
+      .gte("start_at", new Date().toISOString())
+      .order("start_at", { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        // "Couldn't load" and "none scheduled" are different facts and a
+        // parent acts differently on each, so they never share a message.
+        if (error) {
+          setLoadError("We couldn't load the workshop list just now. Please refresh the page.");
+        } else {
+          setWorkshops(data || []);
+        }
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="w-full max-w-5xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
-      <h1 className="font-display text-3xl sm:text-4xl mb-3 text-[#e7ecf5]">Workshops</h1>
-      <p className="text-base text-[#93a1b8] max-w-2xl mb-10">
+      <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">Short &amp; Focused</span>
+      <h1 className="font-display text-3xl sm:text-4xl mt-3 mb-3 text-[#e7ecf5]">Workshops</h1>
+      <p className="text-base text-[#93a1b8] max-w-2xl mb-8">
         Short, focused sessions alongside the regular coaching, run at both academies and at schools.
+        Register your child directly below.
       </p>
 
-      <div className="grid sm:grid-cols-2 gap-5">
-        {FORMATS.map((f) => (
-          <div key={f.title} className="bg-[#1e293b] border border-[#2d3b53] rounded-2xl p-6">
-            <h2 className="font-display text-xl text-[#e7ecf5]">{f.title}</h2>
-            <p className="text-base text-[#93a1b8] mt-2 leading-relaxed">{f.body}</p>
-          </div>
+      {loading && <p className="text-sm text-[#93a1b8]">Loading…</p>}
+      {!loading && loadError && (
+        <div className="bg-[#1e293b] border border-[#f87171]/50 rounded-2xl p-5">
+          <p className="text-sm text-[#f87171]">{loadError}</p>
+          <p className="text-sm text-[#93a1b8] mt-2">
+            This doesn't mean there are none. We just couldn't reach our servers.
+          </p>
+        </div>
+      )}
+      {!loading && !loadError && workshops.length === 0 && (
+        <p className="text-sm text-[#93a1b8]">No workshops scheduled right now. Check back soon.</p>
+      )}
+
+      <div className="space-y-5">
+        {workshops.map((w) => (
+          <EventCard key={w.id} kind="workshop" event={w} />
         ))}
       </div>
 
       <div className="mt-8 bg-[#1e293b] border border-[#d4af37]/40 rounded-2xl p-6 sm:p-8">
-        <h2 className="font-display text-xl text-[#e7ecf5]">Dates for the next sessions</h2>
+        <h2 className="font-display text-xl text-[#e7ecf5]">Want a session for your school or group?</h2>
         <p className="text-base text-[#93a1b8] mt-2 max-w-2xl leading-relaxed">
-          Workshop dates are announced each term. Ask us and we will tell you what is running next, or
-          arrange a session for your school or group.
+          We run introductory chess at schools around Visakhapatnam, from a single assembly to a full
+          term. Tell us what you need and we will put a date in.
         </p>
         <div className="flex flex-wrap gap-3 mt-5">
           <Link

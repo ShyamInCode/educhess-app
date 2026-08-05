@@ -4,6 +4,7 @@ import AdminCarousels from "./admin/AdminCarousels";
 import AdminTestimonials from "./admin/AdminTestimonials";
 import AdminGallery from "./admin/AdminGallery";
 import AdminTournaments from "./admin/AdminTournaments";
+import AdminWorkshops from "./admin/AdminWorkshops";
 import EnquiriesInbox from "./admin/EnquiriesInbox";
 
 const TABS = [
@@ -12,6 +13,7 @@ const TABS = [
   { key: "testimonials", label: "Testimonials", Component: AdminTestimonials },
   { key: "gallery", label: "Gallery", Component: AdminGallery },
   { key: "tournaments", label: "Tournaments", Component: AdminTournaments },
+  { key: "workshops", label: "Workshops", Component: AdminWorkshops },
   { key: "enquiries", label: "Enquiries", Component: EnquiriesInbox },
 ];
 
