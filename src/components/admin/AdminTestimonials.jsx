@@ -63,8 +63,8 @@ export default function AdminTestimonials() {
         <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">Add a testimonial</h2>
         <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Name</label>
-            <input
+            <label htmlFor="testimonial-name" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Name</label>
+            <input id="testimonial-name"
               required
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -72,16 +72,16 @@ export default function AdminTestimonials() {
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Role (e.g. "Parent, Grade 6 student")</label>
-            <input
+            <label htmlFor="testimonial-role" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Role (e.g. "Parent, Grade 6 student")</label>
+            <input id="testimonial-role"
               value={form.role}
               onChange={(e) => setForm({ ...form, role: e.target.value })}
               className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]"
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Quote</label>
-            <textarea
+            <label htmlFor="testimonial-quote" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Quote</label>
+            <textarea id="testimonial-quote"
               required
               rows={3}
               value={form.quote}
@@ -90,8 +90,8 @@ export default function AdminTestimonials() {
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Rating (1-5)</label>
-            <select
+            <label htmlFor="testimonial-rating" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Rating (1-5)</label>
+            <select id="testimonial-rating"
               value={form.rating}
               onChange={(e) => setForm({ ...form, rating: e.target.value })}
               className="mt-1 w-32 bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]"
@@ -121,7 +121,7 @@ export default function AdminTestimonials() {
             <div key={t.id} className="flex items-center justify-between gap-4 bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl px-4 py-3">
               <div className="min-w-0">
                 <p className="text-base text-[#e7ecf5] truncate">"{t.quote}"</p>
-                <p className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">{t.name} · {t.role || "—"} · {t.rating}★</p>
+                <p className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">{t.name} · {t.role || "No role"} · {t.rating}★</p>
               </div>
               <button
                 onClick={() => handleDelete(t)}

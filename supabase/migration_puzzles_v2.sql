@@ -22,7 +22,27 @@
 --      mating patterns/piece combinations, not just "back rank
 --      with three pawns" repeated) so a continuous shuffle-stream
 --      doesn't feel like the same handful of puzzles on repeat.
--- Safe to re-run: guarded with IF NOT EXISTS / DROP ... IF EXISTS.
+-- ------------------------------------------------------------
+-- !! NOT SAFE TO RE-RUN — THIS MIGRATION IS DESTRUCTIVE !!
+--
+-- This header used to claim "Safe to re-run: guarded with IF NOT EXISTS /
+-- DROP ... IF EXISTS." The DDL is guarded, but the body also runs an
+-- unguarded
+--
+--     delete from public.puzzles;
+--
+-- and then re-inserts the seed set. Re-running therefore WIPES the table
+-- first. That is intended on a first run (the point of the migration is to
+-- replace a seed set containing illegal positions) but it is not idempotent,
+-- and the old comment invited someone to re-run it casually.
+--
+-- SUPERSEDED. `public.puzzles` is the old hand-generated table. The app now
+-- reads `public.lichess_puzzles` — see migration_lichess_puzzles.sql and
+-- src/lib/puzzles.js. There is no reason to run this file on a database that
+-- already has it applied. It is kept only so the schema history stays
+-- readable, and so the table can be rebuilt if anyone ever needs it.
+--
+-- If you do need to re-run it, take a backup of public.puzzles first.
 -- ============================================================
 
 alter table public.puzzles
@@ -38,7 +58,11 @@ alter table public.puzzles
 alter table public.puzzles
   add constraint puzzles_category_check check (category in ('mate_in_1', 'mate_in_2', 'mate_in_3', 'best_move'));
 
+-- >>> DESTRUCTIVE <<<
 -- Wipe the old (partly-illegal, thin) seed set — see explanation above.
+-- This is the statement that makes the whole file non-idempotent: re-running
+-- the migration empties the table before re-seeding it.
+--
 -- quest_progress rows referencing old puzzle ids become harmless orphaned
 -- text keys (quest_key is a plain string, not a foreign key), so no
 -- migration is needed there.

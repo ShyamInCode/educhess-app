@@ -1,92 +1,98 @@
 import React, { useState } from "react";
 import { useAuth } from "../lib/AuthContext";
-import { PRICING_TIERS } from "../data/mockData";
+import { supabase } from "../lib/supabaseClient";
+
+/*
+  The Preferences and "Manage Subscriptions" tabs were removed: neither had any
+  backing store. Preferences were three always-checked checkboxes that persisted
+  nothing (and promised a weekly email that doesn't exist), and Subscriptions
+  told every visitor they were on the ₹2,999/mo plan by reading a static
+  marketing flag. Re-add them when there is a real preferences table and real
+  billing (see docs/ROADMAP.md P4.5).
+
+  The "N pts earned so far" line was removed along with the rest of the points
+  system — see the note in docs/ROADMAP.md P0-4.
+*/
 
 export default function DashboardPage() {
-  const { user, profile } = useAuth();
-  const [tab, setTab] = useState("profile");
-  const displayName = profile?.name || user?.email || "Strategist";
-  const tabs = [
-    { key: "profile", label: "Profile" },
-    { key: "preferences", label: "Preferences" },
-    { key: "subscriptions", label: "Manage Subscriptions" },
-  ];
+  const { user, profile, refreshProfile } = useAuth();
+  const [name, setName] = useState(profile?.name || "");
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState(null); // {type:"ok"|"error", msg}
+
+  async function save(e) {
+    e.preventDefault();
+    if (!user) return;
+    setSaving(true);
+    setStatus(null);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ name: name.trim() || null })
+      .eq("id", user.id);
+    if (error) {
+      setSaving(false);
+      setStatus({ type: "error", msg: "Couldn't save that. Please try again." });
+      return;
+    }
+    // Re-read the profile so the header picks the new name up immediately —
+    // this used to tell the user to refresh the page themselves.
+    await refreshProfile();
+    setSaving(false);
+    setStatus({ type: "ok", msg: "Saved." });
+  }
+
+  if (!user) {
+    return (
+      <div className="w-full max-w-6xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
+        <h1 className="font-display text-3xl sm:text-4xl mb-4 text-[#e7ecf5]">Dashboard</h1>
+        <div className="bg-[#1e293b] border border-[#2d3b53] rounded-2xl p-6">
+          <p className="text-base text-[#e7ecf5]">Log in to see your dashboard.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full max-w-6xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
+    <div className="w-full max-w-3xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
       <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">Your Command Center</span>
       <h1 className="font-display text-3xl sm:text-4xl mt-3 mb-8 text-[#e7ecf5]">Dashboard</h1>
 
-      <div className="grid lg:grid-cols-[220px_1fr] gap-8">
-        <div className="flex lg:flex-col gap-2">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`text-left px-4 py-2.5 rounded-lg text-base font-medium transition-colors ${
-                tab === t.key ? "bg-[#1e293b] text-[#d4af37] border border-[#d4af37]/50" : "text-[#93a1b8] hover:text-[#e7ecf5] hover:bg-[#1e293b]/60"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+      <form onSubmit={save} className="bg-[#1e293b] border border-[#2d3b53] rounded-2xl p-6 sm:p-8 space-y-4 max-w-md">
+        <h2 className="font-display text-2xl text-[#e7ecf5] mb-2">Profile</h2>
+
+        <div>
+          <label htmlFor="dash-name" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Name</label>
+          <input
+            id="dash-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={80}
+            className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]"
+          />
         </div>
 
-        <div className="bg-[#1e293b] border border-[#2d3b53] rounded-2xl p-6 sm:p-8">
-          {tab === "profile" && (
-            <div className="space-y-4 max-w-md">
-              <h2 className="font-display text-2xl text-[#e7ecf5] mb-4">Profile</h2>
-              <div>
-                <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Name</label>
-                <input defaultValue={displayName} className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
-              </div>
-              <div>
-                <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Email</label>
-                <input defaultValue={user?.email || ""} disabled className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base opacity-60" />
-              </div>
-              <p className="text-sm font-mono text-[#93a1b8]">{profile?.rank_points ?? 0} pts earned so far</p>
-              <button className="mt-2 px-5 py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors">Save Changes</button>
-            </div>
-          )}
-
-          {tab === "preferences" && (
-            <div className="space-y-4 max-w-md">
-              <h2 className="font-display text-2xl text-[#e7ecf5] mb-4">Preferences</h2>
-              {[
-                { l: "Weekly progress email", d: "Get a summary of quests cleared each week." },
-                { l: "New content alerts", d: "Hear about new modules the moment they drop." },
-                { l: "Quiz reminders", d: "A nudge if a level's quiz has been sitting untaken." },
-              ].map((p) => (
-                <label key={p.l} className="flex items-center justify-between gap-4 bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl p-4 cursor-pointer">
-                  <div>
-                    <p className="text-base text-[#e7ecf5]">{p.l}</p>
-                    <p className="text-sm text-[#93a1b8] mt-0.5">{p.d}</p>
-                  </div>
-                  <input type="checkbox" defaultChecked className="w-5 h-5 accent-[#d4af37]" />
-                </label>
-              ))}
-            </div>
-          )}
-
-          {tab === "subscriptions" && (
-            <div>
-              <h2 className="font-display text-2xl text-[#e7ecf5] mb-4">Manage Subscriptions</h2>
-              <div className="grid sm:grid-cols-3 gap-4">
-                {PRICING_TIERS.map((t) => (
-                  <div key={t.name} className={`rounded-xl p-4 border flex flex-col ${t.highlight ? "border-[#d4af37] bg-[#0f172a]" : "border-[#2d3b53] bg-[#0f172a]/60"}`}>
-                    <span className="text-2xl">{t.medal}</span>
-                    <h3 className="font-display text-lg text-[#e7ecf5] mt-2">{t.name}</h3>
-                    <p className="font-mono text-xl text-[#d4af37] mt-1">{t.price}</p>
-                    <button className={`mt-4 py-2 rounded-lg text-sm font-semibold transition-colors ${t.highlight ? "bg-[#d4af37] text-[#0f172a] hover:bg-[#f0d98c]" : "bg-[#1e293b] border border-[#2d3b53] text-[#e7ecf5] hover:border-[#d4af37]"}`}>
-                      {t.highlight ? "Current Plan" : "Switch Plan"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        <div>
+          <label htmlFor="dash-email" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Email</label>
+          <input
+            id="dash-email"
+            value={user.email || ""}
+            disabled
+            className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base opacity-60"
+          />
         </div>
-      </div>
+
+        {status && (
+          <p className={`text-sm ${status.type === "ok" ? "text-[#34d399]" : "text-[#f87171]"}`}>{status.msg}</p>
+        )}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="mt-2 px-5 py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save Changes"}
+        </button>
+      </form>
     </div>
   );
 }

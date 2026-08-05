@@ -1,0 +1,13 @@
+# Left unpinned at the minor level so this installs on new Python releases.
+# Python 3.14 had no prebuilt pydantic-core wheel for the originally pinned
+# versions; pin exactly once you've settled on a deploy image.
+fastapi>=0.115
+uvicorn[standard]>=0.34
+pydantic>=2.12
+pydantic-settings>=2.7
+pyjwt>=2.10
+# Required by pyjwt to verify ES256/RS256 — Supabase's current asymmetric
+# signing keys. Without it every token verification fails at import time.
+cryptography>=44
+httpx>=0.28
+python-dotenv>=1.0

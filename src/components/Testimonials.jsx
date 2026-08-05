@@ -6,6 +6,7 @@ export default function Testimonials() {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -14,11 +15,15 @@ export default function Testimonials() {
       .select("*")
       .eq("published", true)
       .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (!cancelled) {
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.error("[Testimonials] failed to load", error);
+          setFailed(true);
+        } else {
           setTestimonials(data || []);
-          setLoading(false);
         }
+        setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -39,12 +44,19 @@ export default function Testimonials() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <span className="font-mono text-sm text-[#d4af37] tracking-widest uppercase">From the Cohort</span>
-      <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">What parents are saying</h2>
+      <h2 className="font-display text-2xl mb-6 text-[#e7ecf5]">What parents are saying</h2>
 
       {loading && <p className="text-[#93a1b8] text-base">Loading testimonials…</p>}
 
-      {!loading && testimonials.length === 0 && (
+      {/* "None yet" and "the request failed" are different things — saying the
+          first when the second happened misrepresents the academy. */}
+      {!loading && failed && (
+        <p className="text-[#f87171] text-base">
+          These couldn't load right now. Please refresh the page.
+        </p>
+      )}
+
+      {!loading && !failed && testimonials.length === 0 && (
         <p className="text-[#93a1b8] text-base">Testimonials from our families will appear here soon.</p>
       )}
 

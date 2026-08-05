@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
-import CountUp from "../components/CountUp";
 import { supabase } from "../lib/supabaseClient";
 import { getPublicStorageUrl, GALLERY_BUCKET } from "../lib/media";
 import { CORPORATE_DETAILS, PRICING_TIERS } from "../data/mockData";
@@ -27,21 +26,21 @@ const VALUES = [
   {
     icon: "♟",
     title: "Chess-first, always",
-    desc: "Chess is our primary course. Maths and English are separate courses we also teach — not a chess add-on.",
+    desc: "Chess is the whole programme, not an add-on to something else. Every lesson is built around the board.",
   },
 ];
 
 const MILESTONES = [
-  { year: "Est.", label: "Champion Chess Academy founded in Gajuwaka" },
+  { year: "2016", label: "EduChess founded in Gajuwaka" },
   { year: "5000+", label: "Students actively coached across all levels" },
-  { year: "3", label: "Courses offered: Chess, Maths, English" },
-  { year: "1000s", label: "Quests and puzzles cleared on the platform" },
+  { year: "2", label: "Offline academies across Visakhapatnam" },
+  { year: "100k+", label: "Tactics puzzles available to practise" },
 ];
 
 export default function AboutPage() {
-  const navigate = useNavigate();
   const [galleryImages, setGalleryImages] = useState([]);
   const [galleryLoading, setGalleryLoading] = useState(true);
+  const [galleryError, setGalleryError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -51,11 +50,14 @@ export default function AboutPage() {
       .eq("published", true)
       .eq("category", "about")
       .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (!cancelled) {
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setGalleryError("The gallery couldn't load right now. Please refresh the page.");
+        } else {
           setGalleryImages(data || []);
-          setGalleryLoading(false);
         }
+        setGalleryLoading(false);
       });
     return () => {
       cancelled = true;
@@ -67,13 +69,12 @@ export default function AboutPage() {
       <motion.div initial="hidden" animate="visible" variants={fadeUp} transition={{ duration: 0.5 }}>
         <span className="font-mono text-sm tracking-[0.3em] text-brand-emerald uppercase">Our Story</span>
         <h1 className="font-display text-3xl sm:text-4xl lg:text-5xl mt-3 mb-5 text-ink leading-tight">
-          Champion Chess Academy
+          EduChess
         </h1>
         <p className="text-base sm:text-lg text-ink-dim max-w-3xl leading-relaxed">
-          Founded in Gajuwaka, Visakhapatnam, Champion Chess Academy exists for one reason: chess taught
-          well makes better thinkers, and better thinkers make better students. Chess is our primary
-          course — tournament-ready strategy coaching for every level — and alongside it we run separate
-          Maths and English courses for families who want more, all under one roof.
+          Founded in Gajuwaka, Visakhapatnam, EduChess exists for one reason: chess taught well makes
+          better thinkers. We coach every level, from a child learning how the pieces move to a player
+          preparing for rated tournaments.
         </p>
       </motion.div>
 
@@ -126,27 +127,9 @@ export default function AboutPage() {
         </div>
       </div>
 
-      <motion.div
-        className="mt-14 grid sm:grid-cols-3 gap-4 sm:gap-6 bg-panel/40 border border-line rounded-2xl p-6 sm:p-8"
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true, amount: 0.3 }}
-        variants={fadeUp}
-        transition={{ duration: 0.5 }}
-      >
-        {[
-          { to: 4870, suffix: "+", label: "Students ranked up" },
-          { to: 96, suffix: "%", label: "Parent satisfaction" },
-          { to: 58, suffix: "", label: "Cognitive Arenas run" },
-        ].map((s) => (
-          <div key={s.label} className="text-center">
-            <p className="font-display text-3xl sm:text-4xl text-gold">
-              <CountUp to={s.to} suffix={s.suffix} />
-            </p>
-            <p className="text-sm text-ink-dim mt-1">{s.label}</p>
-          </div>
-        ))}
-      </motion.div>
+      {!galleryLoading && galleryError && (
+        <p className="mt-14 text-sm text-[#f87171]">{galleryError}</p>
+      )}
 
       {!galleryLoading && galleryImages.length > 0 && (
         <div className="mt-14">
@@ -163,10 +146,11 @@ export default function AboutPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
             {galleryImages.map((img) => (
               <div key={img.id} className="rounded-2xl overflow-hidden border border-line bg-panel">
+                {/* object-contain: show the whole photo whatever its shape. */}
                 <img
                   src={getPublicStorageUrl(GALLERY_BUCKET, img.storage_path)}
-                  alt={img.caption || "Champion Chess Academy"}
-                  className="w-full aspect-video object-cover"
+                  alt={img.caption || "EduChess"}
+                  className="w-full aspect-video object-contain bg-void"
                 />
                 {img.caption && <p className="text-sm text-ink-dim p-4">{img.caption}</p>}
               </div>
@@ -208,12 +192,10 @@ export default function AboutPage() {
                   <li key={f} className="text-base text-ink flex gap-2"><span className="text-gold">♟</span>{f}</li>
                 ))}
               </ul>
-              <Button
-                variant={t.highlight ? "default" : "outline"}
-                className="mt-6 w-full"
-                onClick={() => navigate("/contact")}
-              >
-                Enquire About This Tier
+              <Button asChild variant={t.highlight ? "default" : "outline"} className="mt-6 w-full">
+                <Link to="/contact" aria-label={`Enquire about the ${t.name} tier`}>
+                  Enquire About This Tier
+                </Link>
               </Button>
             </motion.div>
           ))}
@@ -233,10 +215,12 @@ export default function AboutPage() {
           <p className="text-sm text-ink-dim">{CORPORATE_DETAILS.find((c) => c.l === "HQ Location")?.v}</p>
         </div>
         <div className="flex gap-3 shrink-0">
-          <Button variant="outline" onClick={() => navigate("/courses")}>
-            Explore Programs
+          <Button asChild variant="outline">
+            <Link to="/courses">Explore Programs</Link>
           </Button>
-          <Button onClick={() => navigate("/contact")}>Talk to Us</Button>
+          <Button asChild>
+            <Link to="/contact">Talk to Us</Link>
+          </Button>
         </div>
       </motion.div>
     </div>

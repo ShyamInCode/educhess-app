@@ -53,7 +53,6 @@ export default function AdminVideos() {
 
   useEffect(() => {
     loadChapters(category);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
   useEffect(() => {
@@ -71,7 +70,7 @@ export default function AdminVideos() {
   // `videos` for that category+chapter, their files in Storage, and
   // finally the chapter row itself.
   async function handleDeleteChapter(chapter) {
-    const confirmMsg = `Delete chapter "${chapter.title}"? This permanently deletes all of its videos too — this can't be undone.`;
+    const confirmMsg = `Delete chapter "${chapter.title}"? This permanently deletes all of its videos too. This cannot be undone.`;
     if (!window.confirm(confirmMsg)) return;
 
     setChapterError("");
@@ -107,7 +106,7 @@ export default function AdminVideos() {
       await loadChapters(category);
       await loadRecentVideos();
     } catch (err) {
-      setChapterError(err.message || "Couldn't delete this chapter — please try again.");
+      setChapterError(err.message || "Couldn't delete this chapter. Please try again.");
     } finally {
       setDeletingChapter(null);
     }
@@ -186,7 +185,7 @@ export default function AdminVideos() {
       if (isNewChapter) await loadChapters(category);
       loadRecentVideos();
     } catch (err) {
-      setError(err.message || "Upload failed — please try again.");
+      setError(err.message || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
       setProgressNote("");
@@ -201,19 +200,19 @@ export default function AdminVideos() {
 
         <form onSubmit={handleSubmit} className="space-y-4 max-w-lg" encType="multipart/form-data">
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Title</label>
-            <input
+            <label htmlFor="video-title" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Title</label>
+            <input id="video-title"
               required
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Opening Principles — Lesson 3"
+              placeholder="e.g. Opening Principles, Lesson 3"
               className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]"
             />
           </div>
 
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Category</label>
-            <select
+            <label htmlFor="video-category" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Category</label>
+            <select id="video-category"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37] capitalize"
@@ -225,8 +224,8 @@ export default function AdminVideos() {
           </div>
 
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Chapter</label>
-            <select
+            <label htmlFor="video-chapter" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Chapter</label>
+            <select id="video-chapter"
               value={chapterChoice}
               onChange={handleChapterSelect}
               disabled={loadingChapters}
@@ -240,6 +239,7 @@ export default function AdminVideos() {
             {chapterChoice === NEW_CHAPTER_VALUE && (
               <input
                 required
+                aria-label="New chapter name"
                 value={newChapterName}
                 onChange={(e) => setNewChapterName(e.target.value)}
                 placeholder="New chapter name, e.g. Rook Endgames"
@@ -249,8 +249,8 @@ export default function AdminVideos() {
           </div>
 
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Video file</label>
-            <input
+            <label htmlFor="video-file" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Video file</label>
+            <input id="video-file"
               type="file"
               accept="video/*"
               onChange={handleFileChange}

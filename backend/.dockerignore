@@ -1,0 +1,22 @@
+# The Dockerfile only COPYs requirements.txt and app/, so none of this reaches
+# the image — but the whole directory is still uploaded to the Docker daemon as
+# build context first. Without this, every build ships the local virtualenv and
+# the ~300 MB Lichess dataset across that wire, which is slow locally and fails
+# outright on some hosted builders.
+
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+
+# One-off operational scripts and their input data are not part of the service.
+scripts/
+*.csv
+*.csv.zst
+*.zst
+
+.pytest_cache/
+.ruff_cache/

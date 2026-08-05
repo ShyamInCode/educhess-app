@@ -60,7 +60,7 @@ export default function AdminGallery() {
       e.target.reset?.();
       loadImages();
     } catch (err) {
-      setError(err.message || "Upload failed — please try again.");
+      setError(err.message || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -82,8 +82,9 @@ export default function AdminGallery() {
         <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">Add an academy photo</h2>
         <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Image</label>
+            <label htmlFor="gallery-image" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Image</label>
             <input
+              id="gallery-image"
               type="file"
               accept="image/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -91,8 +92,9 @@ export default function AdminGallery() {
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Caption</label>
+            <label htmlFor="gallery-caption" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Caption</label>
             <input
+              id="gallery-caption"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="e.g. Weekend tournament prep, batch of 2026"
@@ -119,7 +121,8 @@ export default function AdminGallery() {
         <div className="grid sm:grid-cols-2 gap-3">
           {images.map((img) => (
             <div key={img.id} className="bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl overflow-hidden">
-              <img src={getPublicStorageUrl(GALLERY_BUCKET, img.storage_path)} alt={img.caption || ""} className="w-full aspect-video object-cover" />
+              {/* object-contain so the admin previews the WHOLE upload. */}
+              <img src={getPublicStorageUrl(GALLERY_BUCKET, img.storage_path)} alt={img.caption || ""} className="w-full aspect-video object-contain bg-[#0f172a]" />
               <div className="flex items-center justify-between gap-3 p-3">
                 <p className="text-sm text-[#e7ecf5] truncate">{img.caption || "(no caption)"}</p>
                 <button

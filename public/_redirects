@@ -1,0 +1,10 @@
+# SPA fallback: this is a client-routed single-page app, so every path has to
+# be served index.html and let react-router resolve it. Without this, a hard
+# refresh (or a shared link) on /courses/chess returns a real 404 from the host.
+#
+# Format read by Netlify and Cloudflare Pages. Vercel uses vercel.json instead
+# (also in this repo). Other hosts:
+#   - Firebase Hosting: "rewrites": [{ "source": "**", "destination": "/index.html" }]
+#   - nginx:            try_files $uri /index.html;
+#   - Apache:           FallbackResource /index.html
+/*    /index.html   200

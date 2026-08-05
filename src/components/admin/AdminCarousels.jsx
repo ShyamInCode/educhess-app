@@ -21,7 +21,6 @@ export default function AdminCarousels() {
     if (!error) setSlides(data || []);
     setLoading(false);
   }
-
   useEffect(() => {
     loadSlides();
   }, []);
@@ -58,7 +57,7 @@ export default function AdminCarousels() {
       e.target.reset?.();
       loadSlides();
     } catch (err) {
-      setError(err.message || "Upload failed — please try again.");
+      setError(err.message || "Upload failed. Please try again.");
     } finally {
       setUploading(false);
     }
@@ -80,8 +79,9 @@ export default function AdminCarousels() {
         <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">Add a carousel slide</h2>
         <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Image</label>
+            <label htmlFor="carousel-image" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Image</label>
             <input
+              id="carousel-image"
               type="file"
               accept="image/*"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
@@ -89,8 +89,9 @@ export default function AdminCarousels() {
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Caption (shown below the image)</label>
+            <label htmlFor="carousel-caption" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Caption (shown below the image)</label>
             <input
+              id="carousel-caption"
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="e.g. Our students at the Vizag District Open"
@@ -98,8 +99,9 @@ export default function AdminCarousels() {
             />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Position (order, lowest first)</label>
+            <label htmlFor="carousel-position" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Position (order, lowest first)</label>
             <input
+              id="carousel-position"
               type="number"
               value={position}
               onChange={(e) => setPosition(e.target.value)}
@@ -126,7 +128,9 @@ export default function AdminCarousels() {
         <div className="grid sm:grid-cols-2 gap-3">
           {slides.map((s) => (
             <div key={s.id} className="bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl overflow-hidden">
-              <img src={getPublicStorageUrl(CAROUSEL_BUCKET, s.storage_path)} alt={s.caption || ""} className="w-full aspect-video object-cover" />
+              {/* object-contain so the admin previews the WHOLE upload — a
+                  cropped preview hides what the visitor would lose. */}
+              <img src={getPublicStorageUrl(CAROUSEL_BUCKET, s.storage_path)} alt={s.caption || ""} className="w-full aspect-video object-contain bg-[#0f172a]" />
               <div className="flex items-center justify-between gap-3 p-3">
                 <p className="text-sm text-[#e7ecf5] truncate">{s.caption || "(no caption)"}</p>
                 <button

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useAuth } from "../lib/AuthContext";
 
@@ -13,6 +13,9 @@ function RegistrationForm({ tournament, onDone }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // One of these forms renders per tournament card, so field ids have to be
+  // unique per instance or every label would point at the first form's inputs.
+  const fid = useId();
 
   async function submit(e) {
     e.preventDefault();
@@ -25,7 +28,7 @@ function RegistrationForm({ tournament, onDone }) {
     });
     setLoading(false);
     if (error) {
-      setError("Something went wrong submitting that — please try again.");
+      setError("Something went wrong submitting that. Please try again.");
       return;
     }
     onDone();
@@ -35,33 +38,33 @@ function RegistrationForm({ tournament, onDone }) {
     <form onSubmit={submit} className="space-y-3 mt-4 bg-[#0f172a]/60 border border-[#2d3b53] rounded-xl p-4">
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Child's Name</label>
-          <input required value={form.child_name} onChange={(e) => setForm({ ...form, child_name: e.target.value })}
+          <label htmlFor={`${fid}-child`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Child's Name</label>
+          <input id={`${fid}-child`} required value={form.child_name} onChange={(e) => setForm({ ...form, child_name: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
         <div>
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Grade</label>
-          <input required value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}
+          <label htmlFor={`${fid}-grade`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Grade</label>
+          <input id={`${fid}-grade`} required value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
         <div>
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Name</label>
-          <input required value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })}
+          <label htmlFor={`${fid}-parent`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Name</label>
+          <input id={`${fid}-parent`} required autoComplete="name" value={form.parent_name} onChange={(e) => setForm({ ...form, parent_name: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
         <div>
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Phone</label>
-          <input required value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
+          <label htmlFor={`${fid}-phone`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Phone</label>
+          <input id={`${fid}-phone`} required type="tel" autoComplete="tel" value={form.parent_phone} onChange={(e) => setForm({ ...form, parent_phone: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Email</label>
-          <input required type="email" value={form.parent_email} onChange={(e) => setForm({ ...form, parent_email: e.target.value })}
+          <label htmlFor={`${fid}-email`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Parent's Email</label>
+          <input id={`${fid}-email`} required type="email" autoComplete="email" value={form.parent_email} onChange={(e) => setForm({ ...form, parent_email: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Notes (optional)</label>
-          <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          <label htmlFor={`${fid}-notes`} className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">Notes (optional)</label>
+          <textarea id={`${fid}-notes`} rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
             className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
         </div>
       </div>
@@ -105,7 +108,7 @@ function TournamentCard({ tournament }) {
       <div className="grid sm:grid-cols-3 gap-3 mt-4 text-sm">
         <div className="bg-[#0f172a]/60 border border-[#2d3b53] rounded-lg px-3 py-2">
           <p className="text-xs font-mono text-[#d4af37] uppercase tracking-wide">{isOnline ? "Platform" : "Venue"}</p>
-          <p className="text-[#e7ecf5] mt-0.5">{tournament.venue || "—"}</p>
+          <p className="text-[#e7ecf5] mt-0.5">{tournament.venue || "To be confirmed"}</p>
         </div>
         <div className="bg-[#0f172a]/60 border border-[#2d3b53] rounded-lg px-3 py-2">
           <p className="text-xs font-mono text-[#d4af37] uppercase tracking-wide">Fee</p>
@@ -118,7 +121,7 @@ function TournamentCard({ tournament }) {
       </div>
 
       {registered && (
-        <p className="text-[#34d399] text-sm mt-4 font-mono">You're registered — we'll be in touch with details.</p>
+        <p className="text-[#34d399] text-sm mt-4 font-mono">You're registered. We'll be in touch with details.</p>
       )}
       {open && !registered && <RegistrationForm tournament={tournament} onDone={() => { setRegistered(true); setOpen(false); }} />}
     </div>
@@ -128,18 +131,32 @@ function TournamentCard({ tournament }) {
 export default function TournamentsPage() {
   const [tournaments, setTournaments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
+  // A dropped request used to render "No upcoming tournaments right now",
+  // which actively misinforms a parent deciding whether to enrol. The two
+  // states are now distinct, and the fetch is cancellable so a fast
+  // navigation away doesn't set state on an unmounted page.
   useEffect(() => {
+    let cancelled = false;
     supabase
       .from("tournaments")
       .select("*")
       .eq("published", true)
       .gte("start_at", new Date().toISOString())
       .order("start_at", { ascending: true })
-      .then(({ data }) => {
-        setTournaments(data || []);
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setLoadError("We couldn't load the tournament list just now. Please refresh the page.");
+        } else {
+          setTournaments(data || []);
+        }
         setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   return (
@@ -147,12 +164,20 @@ export default function TournamentsPage() {
       <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">Compete &amp; Play</span>
       <h1 className="font-display text-3xl sm:text-4xl mt-3 mb-3 text-[#e7ecf5]">Tournaments</h1>
       <p className="text-base text-[#93a1b8] max-w-2xl mb-8">
-        Upcoming online and offline tournaments — register your child directly below.
+        Upcoming online and offline tournaments. Register your child directly below.
       </p>
 
       {loading && <p className="text-sm text-[#93a1b8]">Loading…</p>}
-      {!loading && tournaments.length === 0 && (
-        <p className="text-sm text-[#93a1b8]">No upcoming tournaments right now — check back soon.</p>
+      {!loading && loadError && (
+        <div className="bg-[#1e293b] border border-[#f87171]/50 rounded-2xl p-5">
+          <p className="text-sm text-[#f87171]">{loadError}</p>
+          <p className="text-sm text-[#93a1b8] mt-2">
+            This doesn't mean there are none. We just couldn't reach our servers.
+          </p>
+        </div>
+      )}
+      {!loading && !loadError && tournaments.length === 0 && (
+        <p className="text-sm text-[#93a1b8]">No upcoming tournaments right now. Check back soon.</p>
       )}
 
       <div className="space-y-5">

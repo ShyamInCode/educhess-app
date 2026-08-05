@@ -1,18 +1,7 @@
 import React, { useState } from "react";
 import PuzzleTrainer from "../components/PuzzleTrainer";
 
-const CATEGORIES = [
-  { key: "mate_in_1", icon: "♕", title: "One Move Mate", desc: "Find the single move that delivers checkmate." },
-  { key: "mate_in_2", icon: "♞", title: "Two Move Mate", desc: "Force checkmate in exactly two moves against any reply." },
-  { key: "mate_in_3", icon: "♖", title: "Three Move Mate", desc: "A longer forced sequence — plan three moves ahead." },
-  { key: "best_move", icon: "♜", title: "Find the Best Move", desc: "Spot the tactic that wins material outright." },
-];
-
-const DIFFICULTIES = [
-  { key: "easy", label: "Easy" },
-  { key: "medium", label: "Medium" },
-  { key: "hard", label: "Hard" },
-];
+import { CATEGORIES, DIFFICULTIES } from "../lib/puzzles";
 
 export default function PuzzlesPage() {
   const [category, setCategory] = useState(null);
@@ -37,7 +26,10 @@ export default function PuzzlesPage() {
     const cat = CATEGORIES.find((c) => c.key === category);
     return (
       <div className="w-full max-w-5xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
-        <button onClick={() => setCategory(null)} className="text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-4">
+        <button
+          onClick={() => setCategory(null)}
+          className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5"
+        >
           ← Back to Puzzles
         </button>
         <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">{cat.title}</span>
@@ -63,7 +55,7 @@ export default function PuzzlesPage() {
       <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">Sharpen Your Tactics</span>
       <h1 className="font-display text-3xl sm:text-4xl mt-3 mb-3 text-[#e7ecf5]">Puzzles</h1>
       <p className="text-base text-[#93a1b8] max-w-2xl mb-8">
-        Pick a category and difficulty, then solve a continuous, randomly-ordered stream of puzzles — one
+        Pick a category and difficulty, then solve a continuous, randomly-ordered stream of puzzles. One
         clears, the next one loads automatically.
       </p>
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Chess } from "chess.js";
-import { supabase } from "../lib/supabaseClient";
-import { useAuth } from "../lib/AuthContext";
 import Chessboard, { squareName } from "./Chessboard";
+import { tryMove } from "../lib/chessMoves";
 import { playSoundForMove } from "../lib/sound";
+import { fetchPuzzles, CATEGORIES } from "../lib/puzzles";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -14,12 +14,7 @@ function squareToRC(square) {
   return [rank, file];
 }
 
-const CATEGORY_LABEL = {
-  mate_in_1: "One Move Mate",
-  mate_in_2: "Two Move Mate",
-  mate_in_3: "Three Move Mate",
-  best_move: "Find the Best Move",
-};
+const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.title]));
 
 function shuffle(arr) {
   const a = arr.slice();
@@ -31,7 +26,6 @@ function shuffle(arr) {
 }
 
 export default function PuzzleTrainer({ category, difficulty, onBack }) {
-  const { user } = useAuth();
   const [queue, setQueue] = useState([]);
   const [pos, setPos] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -51,42 +45,66 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
   const [legalTargets, setLegalTargets] = useState([]);
   const [feedback, setFeedback] = useState(null); // "correct" | "wrong" | null
 
+  // Every delayed board transition (retry, advance, forced reply) goes through
+  // `schedule` so it can be cancelled. Left uncleared, these fired after the
+  // component unmounted — advancing a puzzle queue that no longer exists and
+  // warning about state updates on an unmounted component.
+  const timersRef = useRef([]);
+  const schedule = useCallback((fn, ms) => {
+    const id = setTimeout(fn, ms);
+    timersRef.current.push(id);
+    return id;
+  }, []);
+  const clearTimers = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+  }, []);
+  useEffect(() => clearTimers, [clearTimers]);
+
   const puzzle = queue[pos] || null;
 
-  const loadPuzzle = useCallback((p) => {
-    if (!p) return;
-    gameRef.current = new Chess(p.fen);
-    stageRef.current = 0;
-    setSelected(null);
-    setLegalTargets([]);
-    setFeedback(null);
-    rerender();
-  }, []);
+  const loadPuzzle = useCallback(
+    (p) => {
+      if (!p) return;
+      // Drop anything still queued from the previous puzzle before starting
+      // this one. Skip can't collide with the pause (the button is disabled
+      // while `feedback` is set), but retry() and the batch refetch both land
+      // here, and a stale advance firing after either would silently eat a
+      // puzzle. Unmount is covered separately by the cleanup effect above.
+      clearTimers();
+      gameRef.current = new Chess(p.fen);
+      stageRef.current = 0;
+      setSelected(null);
+      setLegalTargets([]);
+      setFeedback(null);
+      rerender();
+    },
+    [clearTimers]
+  );
 
   useEffect(() => {
     let cancelled = false;
     async function fetchBatch() {
       setLoading(true);
       setError("");
-      const { data, error } = await supabase
-        .from("puzzles")
-        .select("*")
-        .eq("category", category)
-        .eq("difficulty", difficulty);
+      let data;
+      try {
+        // Server-side random sampling — a fresh batch every mount, so
+        // reopening never "resumes" the same handful of puzzles.
+        data = await fetchPuzzles(category, difficulty, 20);
+      } catch {
+        if (!cancelled) {
+          setError("Couldn't load puzzles. Please try again in a moment.");
+          setLoading(false);
+        }
+        return;
+      }
       if (cancelled) return;
-      if (error) {
-        setError("Couldn't load puzzles — run the puzzles migrations in Supabase if you haven't yet.");
+      if (!data.length) {
+        setError("No puzzles available for this category and difficulty yet.");
         setLoading(false);
         return;
       }
-      if (!data || data.length === 0) {
-        setError("No puzzles seeded for this category/difficulty yet.");
-        setLoading(false);
-        return;
-      }
-      // Fresh shuffle every time this trainer mounts (new category/difficulty
-      // pick, or a fresh visit to /puzzles) — never a cached/fixed order, so
-      // reopening never "resumes" the same handful of puzzles.
       const shuffled = shuffle(data);
       setQueue(shuffled);
       setPos(0);
@@ -99,19 +117,6 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, difficulty]);
-
-  async function awardPoints(solvedPuzzle) {
-    if (!user) return;
-    await supabase.from("quest_progress").upsert(
-      {
-        user_id: user.id,
-        subject: "puzzles",
-        quest_key: `puzzle-${category}-${solvedPuzzle.id}`,
-        points: 2,
-      },
-      { onConflict: "user_id,quest_key" }
-    );
-  }
 
   function goToNextPuzzle() {
     const nextPos = pos + 1;
@@ -146,7 +151,7 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
 
     if (!selected) {
       const piece = game.get(square);
-      if (piece && piece.color === "w") {
+      if (piece && piece.color === puzzle.solverColor) {
         setSelected([r, c]);
         setLegalTargets(game.moves({ square, verbose: true }).map((m) => squareToRC(m.to)));
       }
@@ -160,14 +165,16 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
       return;
     }
 
-    const isPromotion = game.get(fromSquare)?.type === "p" && square[1] === "8";
-    const attempt = game.move({ from: fromSquare, to: square, promotion: isPromotion ? "q" : undefined });
+    // Promotion rank depends on which side the student is playing.
+    const promotionRank = puzzle.solverColor === "w" ? "8" : "1";
+    const isPromotion = game.get(fromSquare)?.type === "p" && square[1] === promotionRank;
+    const attempt = tryMove(game, { from: fromSquare, to: square, promotion: isPromotion ? "q" : undefined });
     setSelected(null);
     setLegalTargets([]);
 
     if (!attempt) {
       const piece = game.get(square);
-      if (piece && piece.color === "w") {
+      if (piece && piece.color === puzzle.solverColor) {
         setSelected([r, c]);
         setLegalTargets(game.moves({ square, verbose: true }).map((m) => squareToRC(m.to)));
       }
@@ -179,38 +186,13 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     evaluateMove(attempt);
   }
 
-  // Handles best_move (single move) and mate_in_1 (self-validating via
-  // isCheckmate()) directly, and mate_in_2 / mate_in_3 generically as a
-  // forced move/reply/move[/reply/move] sequence stored in puzzle.solution.
+  // One generic path for every category. `puzzle.solution` is always an
+  // alternating [student, opponent, student, …] list (Lichess `moves` minus
+  // the opponent's opening move, which is pre-applied). A puzzle is solved
+  // when the student plays the final entry — for mate puzzles that move IS
+  // the mate, so no separate isCheckmate() branch is needed.
   function evaluateMove(attempt) {
     const solution = puzzle.solution || [];
-
-    if (category === "mate_in_1") {
-      if (gameRef.current.isCheckmate()) {
-        setFeedback("correct");
-        awardPoints(puzzle);
-        setTimeout(advance, 1100);
-      } else {
-        setFeedback("wrong");
-        setTimeout(retry, 900);
-      }
-      return;
-    }
-
-    if (category === "best_move") {
-      const expected = solution[0];
-      if (expected && attempt.from === expected.from && attempt.to === expected.to) {
-        setFeedback("correct");
-        awardPoints(puzzle);
-        setTimeout(advance, 1100);
-      } else {
-        setFeedback("wrong");
-        setTimeout(retry, 900);
-      }
-      return;
-    }
-
-    // mate_in_2 / mate_in_3
     const expectedIdx = stageRef.current;
     const expected = solution[expectedIdx];
     const isFinalMove = expectedIdx === solution.length - 1;
@@ -218,29 +200,25 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
 
     if (!matches) {
       setFeedback("wrong");
-      setTimeout(retry, 900);
+      schedule(retry, 900);
       return;
     }
 
     if (isFinalMove) {
-      if (gameRef.current.isCheckmate()) {
-        setFeedback("correct");
-        awardPoints(puzzle);
-        setTimeout(advance, 1100);
-      } else {
-        setFeedback("wrong");
-        setTimeout(retry, 900);
-      }
+      setFeedback("correct");
+      schedule(advance, 1100);
       return;
     }
 
     setFeedback("correct");
     stageRef.current = expectedIdx + 2;
-    setTimeout(() => {
+    schedule(() => {
       const forced = solution[expectedIdx + 1];
       if (forced) {
-        const forcedMove = gameRef.current.move({ from: forced.from, to: forced.to, promotion: forced.promotion });
-        playSoundForMove(forcedMove);
+        // Also via tryMove: a throw here would skip the setFeedback(null)
+        // below and leave the board frozen mid-sequence.
+        const forcedMove = tryMove(gameRef.current, { from: forced.from, to: forced.to, promotion: forced.promotion });
+        if (forcedMove) playSoundForMove(forcedMove);
       }
       setFeedback(null);
       rerender();
@@ -250,7 +228,7 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
   if (loading) {
     return (
       <div>
-        <button onClick={onBack} className="text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-4">← Back to Puzzles</button>
+        <button onClick={onBack} className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5">← Back to Puzzles</button>
         <p className="text-sm text-[#93a1b8]">Loading puzzles…</p>
       </div>
     );
@@ -259,18 +237,18 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
   if (error) {
     return (
       <div>
-        <button onClick={onBack} className="text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-4">← Back to Puzzles</button>
+        <button onClick={onBack} className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5">← Back to Puzzles</button>
         <p className="text-sm text-[#f87171]">{error}</p>
       </div>
     );
   }
 
-  const isFinalStage = puzzle && stageRef.current === (puzzle.solution?.length ?? 1) - 1;
-  const title = stageRef.current === 0 ? "White to move" : isFinalStage ? "Find the mating move" : "Find your next move";
+  const sideToMove = puzzle?.solverColor === "b" ? "Black" : "White";
+  const title = stageRef.current === 0 ? `${sideToMove} to move` : "Find your next move";
 
   return (
     <div>
-      <button onClick={onBack} className="text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-4">← Back to Puzzles</button>
+      <button onClick={onBack} className="block text-sm font-mono text-[#93a1b8] hover:text-[#d4af37] mb-5">← Back to Puzzles</button>
       <div className="flex items-center justify-between mb-4">
         <div>
           <span className="font-mono text-sm tracking-[0.3em] text-[#34d399] uppercase">
@@ -289,12 +267,15 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
           selected={selected}
           highlights={legalTargets}
           interactionDisabled={!!feedback}
+          // Show the board from the student's side — ~half of Lichess puzzles
+          // are solved as Black.
+          flipped={puzzle?.solverColor === "b"}
         />
       </div>
 
       <div className="text-center mt-4 h-6">
         {feedback === "correct" && <p className="text-[#34d399] font-mono text-sm">Correct! Next puzzle…</p>}
-        {feedback === "wrong" && <p className="text-[#f87171] font-mono text-sm">Not quite — try again.</p>}
+        {feedback === "wrong" && <p className="text-[#f87171] font-mono text-sm">Not quite. Try again.</p>}
       </div>
 
       <div className="flex justify-center mt-2">

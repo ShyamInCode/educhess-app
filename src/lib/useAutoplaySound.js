@@ -1,15 +1,17 @@
 import { useEffect } from "react";
 
 /**
- * Autoplay a <video> element with sound on, everywhere it's used.
+ * Autoplay a <video>, preferring sound but never hijacking the visitor.
  *
- * Browsers generally allow unmuted autoplay once a visitor has interacted
- * with the site at all (which is almost always true here — they clicked a
- * nav link, a course card, etc. to reach the page). Where a browser still
- * blocks it, this falls back to starting playback (still unmuted) on the
- * very next interaction anywhere on the page — not just a click on the
- * video itself — so it feels automatic rather than requiring the visitor
- * to hunt for a play button.
+ * Previously this set `volume = 1` and then attached *global* pointerdown /
+ * keydown / touchstart listeners, so the visitor's first tap anywhere on the
+ * page — including on the Login button or a nav link — started full-volume
+ * audio. On a phone, in a classroom, that was the worst moment on the site.
+ *
+ * Now: try unmuted autoplay once (browsers allow it if the visitor has already
+ * interacted with the site). If the browser blocks it, fall back to *muted*
+ * autoplay so the video still plays, and leave unmuting to the visitor via the
+ * native controls. No global listeners, no surprise audio.
  *
  * @param {React.RefObject<HTMLVideoElement>} videoRef
  * @param {any[]} deps - re-run whenever these change (e.g. the video src)
@@ -19,28 +21,24 @@ export function useAutoplaySound(videoRef, deps = []) {
     const video = videoRef.current;
     if (!video) return undefined;
 
+    let cancelled = false;
+
     video.muted = false;
-    video.volume = 1;
+    const attempt = video.play();
 
-    const tryPlay = () => {
-      const p = video.play();
-      if (p && typeof p.catch === "function") p.catch(() => {});
-    };
-
-    tryPlay();
-
-    function onFirstInteraction() {
-      tryPlay();
+    if (attempt && typeof attempt.catch === "function") {
+      attempt.catch(() => {
+        // Blocked because it's unmuted — retry silently. The visitor can
+        // unmute from the controls if they want sound.
+        if (cancelled || !videoRef.current) return;
+        videoRef.current.muted = true;
+        const retry = videoRef.current.play();
+        if (retry && typeof retry.catch === "function") retry.catch(() => {});
+      });
     }
 
-    window.addEventListener("pointerdown", onFirstInteraction, { once: true });
-    window.addEventListener("keydown", onFirstInteraction, { once: true });
-    window.addEventListener("touchstart", onFirstInteraction, { once: true });
-
     return () => {
-      window.removeEventListener("pointerdown", onFirstInteraction);
-      window.removeEventListener("keydown", onFirstInteraction);
-      window.removeEventListener("touchstart", onFirstInteraction);
+      cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);

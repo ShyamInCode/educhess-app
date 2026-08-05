@@ -2,3 +2,14 @@ node_modules
 dist
 .env
 .env.local
+
+# Lichess puzzle dataset — ~300 MB compressed. It is operational *input*, not
+# source: re-downloadable any time from https://database.lichess.org/#puzzles,
+# and what actually matters (the filtered subset) lives in Postgres after the
+# import.
+#
+# GitHub hard-rejects any single file over 100 MB, so committing this would
+# break `git push` — and once it is in history, removing it needs a rewrite.
+lichess_db_puzzle.csv
+lichess_db_puzzle.csv.zst
+*.csv.zst

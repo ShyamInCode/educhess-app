@@ -7,6 +7,7 @@ export default function Carousel() {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -15,11 +16,17 @@ export default function Carousel() {
       .select("*")
       .eq("published", true)
       .order("position", { ascending: true })
-      .then(({ data }) => {
-        if (!cancelled) {
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        // A failed fetch used to be indistinguishable from "no slides", so the
+        // carousel silently disappeared from the homepage with nothing logged.
+        if (error) {
+          console.error("[Carousel] failed to load slides", error);
+          setFailed(true);
+        } else {
           setSlides(data || []);
-          setLoading(false);
         }
+        setLoading(false);
       });
     return () => {
       cancelled = true;
@@ -32,6 +39,16 @@ export default function Carousel() {
     return () => clearInterval(t);
   }, [paused, slides.length]);
 
+  if (failed) {
+    return (
+      <div className="rounded-2xl border border-[#2d3b53] bg-[#1e293b] p-6 text-center">
+        <p className="text-sm text-[#93a1b8]">
+          Our photo gallery couldn't load right now. Please refresh the page.
+        </p>
+      </div>
+    );
+  }
+
   if (loading || slides.length === 0) return null;
 
   const cur = slides[index];
@@ -42,11 +59,21 @@ export default function Carousel() {
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <div key={cur.id} className="aspect-video w-full">
+      {/* Fixed frame keeps the carousel from jumping between slides, but the
+          image is `object-contain` so an upload of ANY aspect ratio is shown
+          whole rather than cropped. A blurred copy fills the letterbox so the
+          result still looks deliberate. */}
+      <div key={cur.id} className="relative aspect-video w-full overflow-hidden bg-[#0f172a]">
         <img
           src={getPublicStorageUrl(CAROUSEL_BUCKET, cur.storage_path)}
-          alt={cur.caption || "Champion Chess Academy"}
-          className="w-full h-full object-cover"
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-40"
+        />
+        <img
+          src={getPublicStorageUrl(CAROUSEL_BUCKET, cur.storage_path)}
+          alt={cur.caption || "EduChess"}
+          className="relative w-full h-full object-contain"
         />
       </div>
       {cur.caption && (

@@ -26,7 +26,7 @@ export default function EnquiriesInbox() {
 
       {error && (
         <p className="text-[#f87171] text-sm mb-3">
-          Couldn't load enquiries — run <code className="text-[#d4af37]">migration_contact_admin_view.sql</code> in
+          Couldn't load enquiries. Run <code className="text-[#d4af37]">migration_contact_admin_view.sql</code> in
           Supabase if you haven't yet. ({error})
         </p>
       )}

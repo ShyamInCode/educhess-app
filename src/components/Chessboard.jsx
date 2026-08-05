@@ -28,6 +28,21 @@ export function squareName(r, c) {
   return `${FILES[c]}${RANKS[r]}`;
 }
 
+const PIECE_NAMES = { K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight", P: "pawn" };
+
+/**
+ * Accessible name for a square, e.g. "e4, white pawn" or "d5, empty".
+ *
+ * Every square is a <button> whose only content is a Unicode glyph, which
+ * screen readers announce as "button" and nothing else — 64 identical,
+ * meaningless controls per board. This is what they read out instead.
+ */
+function describeSquare(r, c, sq) {
+  const name = squareName(r, c);
+  if (!sq) return `${name}, empty`;
+  return `${name}, ${sq.w ? "white" : "black"} ${PIECE_NAMES[sq.t] || "piece"}`;
+}
+
 /**
  * Interactive/decorative chess board.
  *
@@ -71,10 +86,34 @@ export default function Chessboard({
   // `bordered`: the board's own frame. Turned off when an outer wrapper
   // (e.g. the Practice page's opponent/you bars) already supplies one.
   bordered = true,
+  // `coordinates`: file letters and rank numbers in the edge squares. On by
+  // default because a student reading "play Qh5" needs to find h5.
+  coordinates = true,
 }) {
+  // `game` is a chess.js instance mutated IN PLACE, so its identity does not
+  // change when a move is played — hence the FEN string as the real cache key.
+  // But identity does change when the instance is swapped (Reset Board, a new
+  // puzzle), and the memo reads `game`, so both belong in the dependency list.
+  // Keying on `fenKey` alone was a stale-read waiting to happen; recomputing a
+  // 64-square array is cheap, so there is nothing to protect here.
+  //
+  // The rule below calls `fenKey` an unnecessary dependency because it sees
+  // `game` already listed. It cannot model mutable deps: after `game.move()`
+  // the instance is identical and ONLY the FEN has changed, so dropping fenKey
+  // would freeze the board. Both entries are load-bearing.
   const fenKey = game ? game.fen() : null;
-  const resolvedBoard = useMemo(() => (game ? fromChessJs(game) : board || initialBoard()), [fenKey, board]);
-  const squareDim = size === "small" ? "w-7 h-7 xs:w-9 xs:h-9 text-base xs:text-xl" : "w-8 h-8 xs:w-10 xs:h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-xl xs:text-2xl sm:text-3xl md:text-4xl";
+  const resolvedBoard = useMemo(
+    () => (game ? fromChessJs(game) : board || initialBoard()),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [game, fenKey, board]
+  );
+  // The smallest step starts at 7 (28px) so an 8-file board is 224px wide and
+  // still fits inside a padded card on a 320px phone — at 8 (32px) the quest
+  // board overflowed the viewport there.
+  const squareDim =
+    size === "small"
+      ? "w-6 h-6 xs:w-9 xs:h-9 text-sm xs:text-xl"
+      : "w-7 h-7 xs:w-10 xs:h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 text-lg xs:text-2xl sm:text-3xl md:text-4xl";
   const disabled = locked || interactionDisabled;
 
   const rowOrder = flipped ? [...resolvedBoard.keys()].reverse() : [...resolvedBoard.keys()];
@@ -100,28 +139,59 @@ export default function Chessboard({
 
   return (
     <div className={wrapperClass} style={wrapperStyle}>
-      <div className={gridClass}>
-        {rowOrder.map((r) => {
+      <div className={gridClass} role="group" aria-label="Chess board">
+        {rowOrder.map((r, visualRow) => {
           const colOrder = flipped ? [...resolvedBoard[r].keys()].reverse() : [...resolvedBoard[r].keys()];
-          return colOrder.map((c) => {
+          return colOrder.map((c, visualCol) => {
             const sq = resolvedBoard[r][c];
             const dark = (r + c) % 2 === 1;
             const key = `${r}-${c}`;
             const isSel = selected && selected[0] === r && selected[1] === c;
             const isHi = highlights.some(([hr, hc]) => hr === r && hc === c);
+            // Coordinates ride inside the edge squares rather than in gutters
+            // around the board, so the rigid 8x8 grid is untouched. Which
+            // squares count as "edge" follows the visual order, so they stay
+            // correct when the board is flipped.
+            const showRank = coordinates && visualCol === 0;
+            const showFile = coordinates && visualRow === 7;
             return (
               <button
                 key={key}
+                type="button"
                 disabled={disabled}
+                aria-label={describeSquare(r, c, sq)}
+                aria-pressed={isSel || undefined}
                 onClick={() => onSquareClick && onSquareClick(r, c, squareName(r, c))}
                 style={fluid ? { fontSize: "clamp(1.1rem, 7vw, 3.4rem)" } : undefined}
-                className={`${fluid ? "w-full h-full" : squareDim} flex items-center justify-center select-none transition-colors
+                className={`relative ${fluid ? "w-full h-full" : squareDim} flex items-center justify-center select-none transition-colors
                   ${dark ? SQUARE_DARK : SQUARE_LIGHT}
                   ${isSel ? "ring-4 ring-inset ring-[#34d399]" : ""}
                   ${isHi ? "bg-[#d4af37]/50" : ""}
                   ${!disabled ? "hover:brightness-110 cursor-pointer" : "cursor-not-allowed"}
                 `}
               >
+                {showRank && (
+                  <span
+                    aria-hidden="true"
+                    className={`absolute top-[2px] left-[3px] font-mono leading-none pointer-events-none ${
+                      dark ? "text-[#f2e7c9]/80" : "text-[#9c7a3f]"
+                    }`}
+                    style={{ fontSize: "clamp(0.5rem, 1.5vw, 0.7rem)" }}
+                  >
+                    {RANKS[r]}
+                  </span>
+                )}
+                {showFile && (
+                  <span
+                    aria-hidden="true"
+                    className={`absolute bottom-[2px] right-[3px] font-mono leading-none pointer-events-none ${
+                      dark ? "text-[#f2e7c9]/80" : "text-[#9c7a3f]"
+                    }`}
+                    style={{ fontSize: "clamp(0.5rem, 1.5vw, 0.7rem)" }}
+                  >
+                    {FILES[c]}
+                  </span>
+                )}
                 {sq && (
                   <span className={sq.w ? PIECE_WHITE : PIECE_BLACK}>
                     {GLYPHS_B[sq.t]}

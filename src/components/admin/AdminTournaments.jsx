@@ -83,51 +83,51 @@ export default function AdminTournaments() {
         <h2 className="font-display text-2xl mt-2 mb-6 text-[#e7ecf5]">Create a tournament</h2>
         <form onSubmit={handleSubmit} className="space-y-4 max-w-lg">
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Title</label>
-            <input required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+            <label htmlFor="tourn-title" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Title</label>
+            <input id="tourn-title" required value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
               className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
           </div>
           <div>
-            <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Description</label>
-            <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+            <label htmlFor="tourn-description" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Description</label>
+            <textarea id="tourn-description" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
               className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Format</label>
-              <select value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}
+              <label htmlFor="tourn-format" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Format</label>
+              <select id="tourn-format" value={form.format} onChange={(e) => setForm({ ...form, format: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]">
                 <option value="offline">Offline</option>
                 <option value="online">Online</option>
               </select>
             </div>
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">{form.format === "online" ? "Platform / Link" : "Venue"}</label>
-              <input value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })}
+              <label htmlFor="tourn-venue" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">{form.format === "online" ? "Platform / Link" : "Venue"}</label>
+              <input id="tourn-venue" value={form.venue} onChange={(e) => setForm({ ...form, venue: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
             </div>
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Start Date &amp; Time</label>
-              <input required type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })}
+              <label htmlFor="tourn-start" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Start Date &amp; Time</label>
+              <input id="tourn-start" required type="datetime-local" value={form.start_at} onChange={(e) => setForm({ ...form, start_at: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
             </div>
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Registration Deadline</label>
-              <input type="datetime-local" value={form.registration_deadline} onChange={(e) => setForm({ ...form, registration_deadline: e.target.value })}
+              <label htmlFor="tourn-deadline" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Registration Deadline</label>
+              <input id="tourn-deadline" type="datetime-local" value={form.registration_deadline} onChange={(e) => setForm({ ...form, registration_deadline: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
             </div>
           </div>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Fee (e.g. "Free" or "₹500")</label>
-              <input value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })}
+              <label htmlFor="tourn-fee" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Fee (e.g. "Free" or "₹500")</label>
+              <input id="tourn-fee" value={form.fee} onChange={(e) => setForm({ ...form, fee: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
             </div>
             <div>
-              <label className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Capacity (optional)</label>
-              <input type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+              <label htmlFor="tourn-capacity" className="text-sm font-mono text-[#93a1b8] uppercase tracking-wide">Capacity (optional)</label>
+              <input id="tourn-capacity" type="number" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })}
                 className="mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]" />
             </div>
           </div>

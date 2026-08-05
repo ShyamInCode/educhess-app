@@ -3,8 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/png" href="/educhess_logo.png" />
-    <link rel="apple-touch-icon" href="/educhess_logo.png" />
+    <!--
+      Sized icons, not the full-resolution logo. The original is 878x916 and
+      844 KB — it was being served for a 16x16 tab render, so every visitor
+      downloaded roughly half the size of the entire JS bundle just for the
+      favicon. It now lives in `assets-src/` (outside `public/`, so it is not
+      shipped); see `assets-src/README.md` to regenerate:
+        favicon-32.png     32x32   (covers 16 and 32 CSS px, incl. 2x DPR)
+        apple-touch-icon   180x180 (iOS/Android home screen)
+    -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>EduChess — Chess & Education</title>
   </head>
   <body>
