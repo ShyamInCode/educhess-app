@@ -1,9 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { Chess } from "chess.js";
 import Chessboard, { squareName } from "./Chessboard";
+import AuthModal from "./AuthModal";
 import { tryMove } from "../lib/chessMoves";
 import { playSoundForMove } from "../lib/sound";
 import { fetchPuzzles, CATEGORIES } from "../lib/puzzles";
+import { useAuth } from "../lib/AuthContext";
+import {
+  ANON_DAILY_LIMIT,
+  anonPuzzlesLeft,
+  logPuzzleAttempt,
+  recordAnonPuzzle,
+} from "../lib/puzzleProgress";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = [8, 7, 6, 5, 4, 3, 2, 1];
@@ -26,13 +34,21 @@ function shuffle(arr) {
 }
 
 export default function PuzzleTrainer({ category, difficulty, onBack }) {
+  const { user, loading: authLoading } = useAuth();
   const [queue, setQueue] = useState([]);
   const [pos, setPos] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [solvedCount, setSolvedCount] = useState(0);
+  const [limitReached, setLimitReached] = useState(false);
+  const [freeLeft, setFreeLeft] = useState(ANON_DAILY_LIMIT);
+  const [authOpen, setAuthOpen] = useState(false);
 
   const gameRef = useRef(null);
+  // Whether the student has already played a wrong move on the CURRENT puzzle.
+  // Decides `solved` when the puzzle concludes: a puzzle you had to retry is
+  // recorded as unsolved, otherwise the stats would say everyone is perfect.
+  const missedRef = useRef(false);
   // Index into puzzle.solution of the next WHITE move expected. 0 always
   // starts a puzzle; forced-sequence puzzles (mate_in_2/3) advance this by
   // 2 each time a white move lands correctly (skipping the auto-played
@@ -108,6 +124,7 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
       const shuffled = shuffle(data);
       setQueue(shuffled);
       setPos(0);
+      missedRef.current = false;
       loadPuzzle(shuffled[0]);
       setLoading(false);
     }
@@ -118,7 +135,25 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category, difficulty]);
 
+  // The anonymous daily cap. Held off until auth has resolved: during that
+  // first tick `user` is null for everyone, and locking the board there would
+  // greet a signed-in student with the sign-up overlay.
+  useEffect(() => {
+    if (authLoading) return;
+    if (user) {
+      setLimitReached(false);
+      return;
+    }
+    const left = anonPuzzlesLeft();
+    setFreeLeft(left);
+    setLimitReached(left <= 0);
+  }, [user, authLoading]);
+
   function goToNextPuzzle() {
+    // A new puzzle, so the "did they need a retry?" flag starts clean. This
+    // deliberately does NOT live in loadPuzzle(): retry() reloads the same
+    // puzzle, and resetting there would forget the mistake we just saw.
+    missedRef.current = false;
     const nextPos = pos + 1;
     if (nextPos < queue.length) {
       setPos(nextPos);
@@ -132,8 +167,34 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     }
   }
 
+  /**
+   * A puzzle has just been finished. Signed-in students get it recorded;
+   * anonymous ones get it counted against today's free allowance, which may
+   * raise the overlay.
+   */
+  function concludePuzzle() {
+    if (user) {
+      logPuzzleAttempt({
+        userId: user.id,
+        puzzleId: puzzle?.id,
+        // A puzzle that took a retry is not "solved" — see missedRef.
+        solved: !missedRef.current,
+        category,
+        difficulty,
+      });
+      return;
+    }
+    const left = Math.max(0, ANON_DAILY_LIMIT - recordAnonPuzzle());
+    setFreeLeft(left);
+    if (left <= 0) setLimitReached(true);
+  }
+
   function advance() {
     setSolvedCount((c) => c + 1);
+    concludePuzzle();
+    // Load the next puzzle even when the cap has just been hit: it sits ready
+    // behind the overlay, so signing in resumes solving instead of stranding
+    // the student on a board they have already finished.
     goToNextPuzzle();
   }
 
@@ -199,6 +260,7 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     const matches = expected && attempt.from === expected.from && attempt.to === expected.to;
 
     if (!matches) {
+      missedRef.current = true;
       setFeedback("wrong");
       schedule(retry, 900);
       return;
@@ -256,37 +318,80 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
           </span>
           <h1 className="font-display text-2xl sm:text-3xl mt-2 text-[#e7ecf5]">{title}</h1>
         </div>
-        <span className="font-mono text-sm text-[#d4af37]">Solved: {solvedCount}</span>
+        <div className="text-right">
+          <span className="font-mono text-sm text-[#d4af37] block">Solved: {solvedCount}</span>
+          {!user && !authLoading && !limitReached && (
+            <span className="font-mono text-xs text-[#93a1b8] block mt-1">
+              {freeLeft} free {freeLeft === 1 ? "puzzle" : "puzzles"} left today
+            </span>
+          )}
+        </div>
       </div>
 
-      <div className="max-w-[440px] mx-auto">
+      <div className="max-w-[440px] mx-auto relative">
         <Chessboard
           fluid
           game={gameRef.current}
           onSquareClick={handleSquareClick}
           selected={selected}
           highlights={legalTargets}
-          interactionDisabled={!!feedback}
+          interactionDisabled={!!feedback || limitReached}
           // Show the board from the student's side — ~half of Lichess puzzles
           // are solved as Black.
           flipped={puzzle?.solverColor === "b"}
         />
+
+        {/* The daily-cap card. Sits over the board rather than replacing it so
+            the visitor can still see what they were doing — the point is to
+            invite a sign-in, not to slam a door. */}
+        {limitReached && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-[#0f172a]/90 backdrop-blur-sm p-4">
+            <div className="max-w-xs text-center">
+              <span className="text-4xl block mb-3 text-[#d4af37]">♛</span>
+              <h2 className="font-display text-xl text-[#e7ecf5]">
+                You've used today's free puzzles
+              </h2>
+              <p className="text-sm text-[#93a1b8] mt-2">
+                Sign in for unlimited puzzles and progress tracking — streaks, totals and what
+                you've solved by category.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAuthOpen(true)}
+                className="mt-5 w-full py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
+              >
+                Sign in — it's free
+              </button>
+              <button
+                type="button"
+                onClick={onBack}
+                className="mt-2 w-full py-2 text-sm text-[#93a1b8] hover:text-[#e7ecf5]"
+              >
+                Back to puzzles
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="text-center mt-4 h-6">
-        {feedback === "correct" && <p className="text-[#34d399] font-mono text-sm">Correct! Next puzzle…</p>}
+        {feedback === "correct" && !limitReached && (
+          <p className="text-[#34d399] font-mono text-sm">Correct! Next puzzle…</p>
+        )}
         {feedback === "wrong" && <p className="text-[#f87171] font-mono text-sm">Not quite. Try again.</p>}
       </div>
 
       <div className="flex justify-center mt-2">
         <button
           onClick={skip}
-          disabled={!!feedback}
+          disabled={!!feedback || limitReached}
           className="px-5 py-2 rounded-lg border border-[#2d3b53] text-[#93a1b8] text-sm font-semibold hover:border-[#d4af37]/50 hover:text-[#e7ecf5] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Skip → Next Puzzle
         </button>
       </div>
+
+      <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }
