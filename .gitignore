@@ -2,6 +2,29 @@ node_modules
 dist
 .env
 .env.local
+.env.*.local
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build-tool and host caches
+.vercel/
+.netlify/
+.vite/
+
+# Local assistant + scaffolding files. Deliberately out of the published
+# repo — they are working notes, not part of the product.
+#
+# NOTE: `.env.example` is ignored here at the owner's request. The variable
+# list it used to carry now lives in docs/DEPLOYMENT.md, which is the file to
+# read when setting the project up somewhere new. Keep that in step, or the
+# next person has no way to discover what the app needs to boot.
+CLAUDE.md
+.env.example
+.claude/
 
 # Lichess puzzle dataset — ~300 MB compressed. It is operational *input*, not
 # source: re-downloadable any time from https://database.lichess.org/#puzzles,

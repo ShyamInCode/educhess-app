@@ -31,21 +31,44 @@ const PRICES: Record<string, { amountPaise: number; label: string }> = {
   academy: { amountPaise: 399900, label: "EduChess Academy — 1 month" },
 };
 
-const CORS = {
-  "Access-Control-Allow-Origin": Deno.env.get("SITE_URL") ?? "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+/*
+  SITE_URL is a comma-separated allow-list, not a single origin, because the
+  same deployed function serves production AND whoever is running the dev
+  server. Pinning it to one origin means local checkout fails CORS, which
+  looks like a broken payment rather than a config choice. Empty falls back
+  to "*" — fine here, since every route below re-checks the caller's token.
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
+    supabase secrets set SITE_URL=https://educhess.in,http://localhost:5173
+*/
+const ALLOWED_ORIGINS = (Deno.env.get("SITE_URL") ?? "")
+  .split(",")
+  .map((s) => s.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+function corsFor(req: Request): Record<string, string> {
+  const origin = (req.headers.get("Origin") ?? "").replace(/\/$/, "");
+  const allow = !ALLOWED_ORIGINS.length
+    ? "*"
+    : ALLOWED_ORIGINS.includes(origin)
+      ? origin
+      : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Vary": "Origin",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+  };
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  const cors = corsFor(req);
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
+
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
   if (!RAZORPAY_KEY_ID || !RAZORPAY_KEY_SECRET || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
