@@ -23,8 +23,14 @@ Thumbs.db
 # read when setting the project up somewhere new. Keep that in step, or the
 # next person has no way to discover what the app needs to boot.
 CLAUDE.md
-.env.example
 .claude/
+
+# Every .env.example in the tree, at any depth. Not just tidiness: the one in
+# backend/ was committed and pushed with a live service_role key pasted into
+# it. A template file that people fill in locally has no business being
+# tracked at all.
+.env.example
+**/.env.example
 
 # Lichess puzzle dataset — ~300 MB compressed. It is operational *input*, not
 # source: re-downloadable any time from https://database.lichess.org/#puzzles,
