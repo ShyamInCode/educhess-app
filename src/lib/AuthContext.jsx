@@ -11,6 +11,12 @@ export function AuthProvider({ children }) {
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Tracks the profile fetch separately from the session load. Without it a
+  // consumer that gates on role (AdminPage) sees a window where the session is
+  // ready (`loading` false) but the profile is still null, and flashes a
+  // "no access" error at a legitimate admin (audit FE-01). Starts true so that
+  // window is covered from the first render.
+  const [profileLoading, setProfileLoading] = useState(true);
   const [authError, setAuthError] = useState("");
 
   // Load the current session once, then keep listening for changes
@@ -62,21 +68,24 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     if (!userId) {
       setProfile(null);
+      // Only settle the flag once the session has actually resolved; while the
+      // session is still loading, userId is transiently null and clearing the
+      // flag here would briefly un-cover the gap FE-01 is about.
+      if (!loading) setProfileLoading(false);
       return undefined;
     }
     let cancelled = false;
+    setProfileLoading(true);
     loadProfile().then(({ data, error }) => {
       if (cancelled) return;
-      if (error) {
-        setAuthError(PROFILE_ERROR);
-        return;
-      }
-      setProfile(data);
+      if (error) setAuthError(PROFILE_ERROR);
+      else setProfile(data);
+      setProfileLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [userId, loadProfile]);
+  }, [userId, loading, loadProfile]);
 
   /**
    * Re-read the profile row and return it.
@@ -147,10 +156,13 @@ export function AuthProvider({ children }) {
     user: session?.user ?? null,
     profile,
     // Expiry applied, so consumers never have to remember to check
-    // tier_expires_at. Display and gating only — the database enforces the
-    // puzzle quota itself.
+    // tier_expires_at. Display and gating only. The puzzle allowance is a
+    // soft cap (see puzzleProgress.js / audit FE-02): the database counts
+    // logged attempts, which the client supplies, so it is a nudge rather
+    // than a hard boundary.
     tier: effectiveTier(profile),
     loading,
+    profileLoading,
     authError,
     refreshProfile,
     signUp,

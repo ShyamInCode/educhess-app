@@ -5,18 +5,16 @@ import { supabase } from "../lib/supabaseClient";
 const FOCUSABLE =
   'button, [href], input:not([type="hidden"]), select, textarea, [tabindex]:not([tabindex="-1"])';
 
-// Dismissals live in sessionStorage, not the database: "not now" should quiet
-// the dialog for this visit without recording a consent decision that was
-// never actually given.
-const DISMISS_KEY = "educhess.profileDialogDismissed";
-
 const LABEL_CLASS = "text-sm font-mono text-[#93a1b8] uppercase tracking-wide";
 const INPUT_CLASS =
   "mt-1 w-full bg-[#0f172a] border border-[#2d3b53] rounded-lg px-3 py-2.5 text-base focus:outline-none focus:ring-2 focus:ring-[#d4af37]";
 
+// Consent is mandatory (every user is a child; DPDP), and so is a name. Grade
+// is optional and deliberately NOT gated on: this dialog is now non-dismissable,
+// so gating on grade would trap a user who declines to give one (audit FL-04).
 function needsCompletion(profile) {
   if (!profile) return false;
-  return !profile.name || !profile.grade || !profile.consent_at;
+  return !profile.name || !profile.consent_at;
 }
 
 /**
@@ -31,14 +29,7 @@ function needsCompletion(profile) {
  * signed in from.
  */
 export default function ProfileCompletionDialog() {
-  const { user, profile, refreshProfile } = useAuth();
-  const [dismissed, setDismissed] = useState(() => {
-    try {
-      return sessionStorage.getItem(DISMISS_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
+  const { user, profile, refreshProfile, signOut } = useAuth();
   const [name, setName] = useState("");
   const [grade, setGrade] = useState("");
   const [consent, setConsent] = useState(false);
@@ -46,7 +37,9 @@ export default function ProfileCompletionDialog() {
   const [error, setError] = useState("");
   const dialogRef = useRef(null);
 
-  const open = !!user && needsCompletion(profile) && !dismissed;
+  // Non-dismissable: the only way past it is to complete it or sign out, so
+  // consent is recorded before the app is used (audit FL-04).
+  const open = !!user && needsCompletion(profile);
 
   // Seed the fields from whatever the provider already gave us, so a Google
   // user usually only has to add a grade and tick the box.
@@ -84,15 +77,6 @@ export default function ProfileCompletionDialog() {
   }, [open]);
 
   if (!open) return null;
-
-  function dismiss() {
-    try {
-      sessionStorage.setItem(DISMISS_KEY, "1");
-    } catch {
-      // Private-mode browsers throw here; dismissing for this render is enough.
-    }
-    setDismissed(true);
-  }
 
   async function save(e) {
     e.preventDefault();
@@ -141,7 +125,7 @@ export default function ProfileCompletionDialog() {
           Complete your profile
         </h2>
         <p className="text-sm text-[#93a1b8] mt-2">
-          Two quick details so we can set up the right coaching for your child.
+          Before your child continues, we need a name and a parent or guardian's consent.
         </p>
 
         <form onSubmit={save} className="space-y-4 mt-5" noValidate>
@@ -196,10 +180,10 @@ export default function ProfileCompletionDialog() {
           </button>
           <button
             type="button"
-            onClick={dismiss}
+            onClick={signOut}
             className="w-full text-sm text-[#93a1b8] hover:text-[#e7ecf5]"
           >
-            Not now
+            Cancel and sign out
           </button>
         </form>
       </div>

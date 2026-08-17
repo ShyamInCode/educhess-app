@@ -123,7 +123,7 @@ export default function EventCard({ kind, event }) {
 
       {registered && (
         <p className="text-[#34d399] text-sm mt-4 font-mono">
-          You're registered. A confirmation email is on its way.
+          You're registered. A confirmation email should arrive shortly; if it doesn't, just get in touch.
         </p>
       )}
       {!registered && closed && (

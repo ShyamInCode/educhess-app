@@ -33,7 +33,14 @@ const LABEL_CLASS = "text-xs font-mono text-[#93a1b8] uppercase tracking-wide";
  */
 export function friendlyRegistrationError(error) {
   const message = error?.message || "";
-  if (error?.code === "23505" || /duplicate key|unique constraint/i.test(message)) {
+  // ALREADY_REGISTERED comes from the capacity trigger (Phase 5 / audit FL-03),
+  // raised ahead of EVENT_FULL/REGISTRATION_CLOSED; 23505 is the unique-index
+  // backstop. Either way the parent is already in.
+  if (
+    /ALREADY_REGISTERED/.test(message) ||
+    error?.code === "23505" ||
+    /duplicate key|unique constraint/i.test(message)
+  ) {
     return "That child is already registered for this one.";
   }
   if (/EVENT_FULL/.test(message)) {

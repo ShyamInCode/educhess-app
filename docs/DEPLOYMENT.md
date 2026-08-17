@@ -154,10 +154,23 @@ The feature work, in order:
 14. `migration_phase8_tiers.sql`
 15. `migration_phase11_payments.sql`
 
-> The ordering of items 1–8 is reconstructed from filenames and their stated
-> prerequisites, not from a migration ledger — this project has never had one.
-> For a rebuild from scratch, read each file's header comment first; several
-> say explicitly what they must run after. Items 9–15 are exact.
+Pending (not yet applied to the live project):
+
+16. `migration_payments_fk_restrict.sql` — audit DB-02 fix (payments.user_id
+    CASCADE → RESTRICT). Run after item 15.
+17. `migration_registration_dupe_message.sql` — audit FL-03 fix (raise
+    ALREADY_REGISTERED ahead of EVENT_FULL/REGISTRATION_CLOSED). Run after
+    item 13 (`migration_phase5_capacity_enforcement.sql`); order vs item 16
+    does not matter.
+
+> This ordered list is the **authoritative** run order (audit DB-01). Filename
+> order is NOT valid: `schema.sql` sorts after every `migration_*` file, and
+> `migration_security_fixes.sql` (which defines `is_admin()`) sorts after the
+> `phase4/5` files that call it. The ordering of items 1–8 is reconstructed
+> from filenames and their stated prerequisites, not from a migration ledger —
+> this project has never had one. For a rebuild from scratch, read each file's
+> header comment first; several say explicitly what they must run after. Items
+> 9–16 are exact.
 
 `migration_puzzles.sql` and `migration_puzzles_v2.sql` are the retired
 hand-generated puzzle set. Not needed; the app reads `lichess_puzzles`.

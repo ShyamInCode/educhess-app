@@ -17,8 +17,10 @@ academy in Visakhapatnam, Andhra Pradesh, India.
 - **Chess is the entire product.** Maths, English and AI are announced as future
   "Edu Courses" and appear only as unlinked *Coming soon* cards.
 - Students are children. Every form collects a child's name, grade and a
-  parent's phone/email, so PII handling and India's DPDP Act matter. Sign-up
-  records an explicit parent/guardian consent timestamp.
+  parent's phone/email, so PII handling and India's DPDP Act matter. Consent is
+  recorded before the app can be used: email sign-up requires the checkbox, and
+  Google/phone users hit a **non-dismissable** `ProfileCompletionDialog` that
+  must be completed (name + consent) or the user signs out (audit FL-04).
 - **Three membership tiers, sold through the site**: Free ₹0, Pro ₹1,999/mo,
   Academy ₹3,999/mo. Paid by Razorpay Checkout; the membership is granted by a
   signed webhook, never by the browser. A month at a time, expiry applied at
@@ -78,7 +80,8 @@ docs/             ARCHITECTURE.md, ROADMAP.md, TESTING.md, this file
 ```
 
 **Migrations are manual.** Adding a `.sql` file does nothing until someone runs
-it in the Supabase dashboard, in filename order.
+it in the Supabase dashboard, in the order listed in `docs/DEPLOYMENT.md §5`.
+(Filename order is **not** a valid run order — see audit finding DB-01.)
 
 ---
 
@@ -153,11 +156,15 @@ INSERT` trigger, not by the form; `tournament_spots_left()` /
   multi-ply puzzles auto-play the opponent's forced reply.
 - Board flips when the student plays Black (~half of all Lichess puzzles).
 - **Sign-in required, and the daily allowance comes from the tier** — 5 / 50 /
-  unlimited. This is enforced in the database, not the client: a `BEFORE
-  INSERT` trigger on `puzzle_attempts` refuses rows past the limit, and
-  batches are handed out by `random_puzzles_for_user()`, which checks the
-  allowance first. `EXECUTE` on `random_puzzles()` is revoked from PUBLIC,
-  `anon` and `authenticated` so the wrapper can't be stepped around.
+  unlimited. This is a **soft** cap, not a hard boundary (audit finding FE-02).
+  A `BEFORE INSERT` trigger on `puzzle_attempts` refuses rows past the limit,
+  batches are handed out by `random_puzzles_for_user()` which checks the
+  allowance first, and `EXECUTE` on `random_puzzles()` is revoked from PUBLIC,
+  `anon` and `authenticated` so the wrapper can't be stepped around. But the
+  count is derived from `puzzle_attempts`, which the client writes, so a client
+  that never logs an attempt is never counted. That is accepted here: the
+  puzzles are free public Lichess data, so the cap is a signup/upgrade nudge,
+  not protection of a scarce resource.
 - **Progress is recorded.** One `puzzle_attempts` row per concluded puzzle;
   a puzzle that needed a retry is `solved = false`. Logging is fire-and-forget
   so a failed insert never interrupts a child mid-puzzle.
@@ -200,8 +207,10 @@ INSERT` trigger, not by the form; `tournament_spots_left()` /
   phone-only users have no email, Google sends `full_name` not `name`, and the
   name is truncated to 80 chars or the `profiles_name_len` constraint would
   abort the sign-up with an opaque error.
-- `ProfileCompletionDialog` at the app root collects name, grade and consent
-  from anyone who arrived by a route with no form to ask on (Google, phone).
+- `ProfileCompletionDialog` at the app root collects name and consent (grade
+  optional) from anyone who arrived by a route with no form to ask on (Google,
+  phone). It is **non-dismissable** — complete it or sign out — so consent is
+  recorded before the app is used (audit FL-04).
 - Roles: `student` (default) and `admin`. Promotion is manual via SQL.
 
 ### 5.5 Admin panel (`/admin`)
@@ -581,8 +590,9 @@ refunds through the UI, rate limiting or CAPTCHA on the two public forms,
 video captions, per-route SEO metadata.
 
 **Operational notes:**
-- Migrations are manual and now number twelve files. Run order is by phase;
-  each header states its prerequisite.
+- Migrations are manual. The authoritative run order is `docs/DEPLOYMENT.md §5`
+  (filename order is not valid — see audit finding DB-01); each file's header
+  also states its prerequisite.
 - Three Edge Functions must be deployed for the site to be fully functional.
   `razorpay-webhook` needs `--no-verify-jwt` — Razorpay does not send a
   Supabase JWT, and the function checks the HMAC itself.

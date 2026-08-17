@@ -87,12 +87,16 @@ async function build(table: string, record: Record<string, any>): Promise<{ to: 
   }
 }
 
-async function sendViaResend(to: string, mail: Built): Promise<Response> {
+async function sendViaResend(to: string, mail: Built, idempotencyKey: string): Promise<Response> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
+      // Deterministic per triggering row (`${table}:${record.id}`), so a
+      // re-fired Database Webhook or a Resend retry is a no-op instead of a
+      // second identical email to the parent.
+      "Idempotency-Key": idempotencyKey,
     },
     body: JSON.stringify({
       from: EMAIL_FROM,
@@ -157,10 +161,29 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const res = await sendViaResend(built.to, built.mail);
+  // Stable per triggering row so a retry can't produce a duplicate. Falls back
+  // to recipient+subject only if the row somehow arrived without an id.
+  const idempotencyKey = record.id != null
+    ? `${table}:${record.id}`
+    : `${table}:${built.to}:${built.mail.subject}`;
+
+  let res: Response;
+  try {
+    res = await sendViaResend(built.to, built.mail, idempotencyKey);
+  } catch (err) {
+    // A network-level failure would otherwise throw uncaught out of the handler
+    // (opaque 500, no log). Log it and 502 so the webhook retries — the
+    // idempotency key makes a later successful send safe.
+    console.error(`[send-email] network error sending ${table} mail to ${built.to}: ${err instanceof Error ? err.message : String(err)}`);
+    return new Response(JSON.stringify({ error: "Send failed", reason: "network" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const body = await res.text();
   if (!res.ok) {
-    console.error(`[send-email] Resend rejected ${table} mail: ${res.status} ${body}`);
+    console.error(`[send-email] Resend rejected ${table} mail to ${built.to}: ${res.status} ${body}`);
     return new Response(JSON.stringify({ error: "Send failed", status: res.status }), {
       status: 502,
       headers: { "Content-Type": "application/json" },

@@ -16,8 +16,14 @@ import { supabase } from "./supabaseClient";
 
    The numbers are NOT decided here. tier_daily_puzzles() decides them,
    enforce_puzzle_quota refuses attempts past the limit, and
-   random_puzzles_for_user() refuses to hand out a batch. Everything below
-   is either a read of that state or a display of it.
+   random_puzzles_for_user() refuses a batch once the day's attempts are used.
+
+   This is a SOFT limit, not a hard boundary (audit finding FE-02). The count
+   is derived from puzzle_attempts, which the client writes below, so a client
+   that never logs an attempt is never counted against the cap. That is an
+   accepted tradeoff: the puzzles are free public Lichess data, so the daily
+   allowance is a signup/upgrade nudge, not protection of a scarce resource.
+   Everything below is either a read of that state or a display of it.
    ============================================================ */
 
 /** Does this error mean "you have used today's puzzles"? */
