@@ -1,91 +1,121 @@
 # EduChess — System Overview
 
-A single self-contained description of the product, architecture and data model,
-written to be pasted into another tool as context. Accurate as of 2026-08-05.
+A single self-contained description of the product, architecture and data
+model, written to be pasted into another tool as context.
+
+Accurate as of the frontend-only consolidation. **Everything a previous
+revision said about Edge Functions, Database Webhooks, a FastAPI service or a
+Razorpay checkout is gone** — not disabled, deleted. They are archived under
+`docs/archive/` with a README explaining what each was.
 
 ---
 
-## 1. What the product is
+## 1. The architecture, in one paragraph
+
+A static React bundle talks directly to Supabase with the anon key. The entire
+server side is six SQL files in `supabase/`, pasted into the SQL Editor once.
+There is no deployed server code of any kind: no Edge Functions, no Database
+Webhooks, no backend service, no cron. Every rule that a server would normally
+enforce is either a Row Level Security policy or a `SECURITY DEFINER` function,
+and both live in files you can read end to end in about twenty minutes.
+
+**If a rule is not in `supabase/*.sql`, it is not enforced.** The React app
+contains no security boundary anywhere. That is worth internalising before
+changing anything: the padlock on a course chapter, the "5 left today" counter,
+the disabled Register button — all three are labels describing a decision the
+database already made.
+
+---
+
+## 2. What the product is
 
 **EduChess** is the public website and learning platform for a chess coaching
 academy in Visakhapatnam, Andhra Pradesh, India.
 
 - **EduChess** is the online brand. **Champion Chess Academy** is the offline,
   in-person entity. The site uses EduChess everywhere except the postal address.
-- Two physical academies: Gajuwaka (HQ) and opposite Timpany School, VUDA Colony.
-  Founded 2016.
-- **Chess is the entire product.** Maths, English and AI are announced as future
-  "Edu Courses" and appear only as unlinked *Coming soon* cards.
+- Two physical academies: Gajuwaka (HQ) and opposite Timpany School, VUDA
+  Colony. Founded 2016.
+- **Chess is the entire product.** Maths, English and AI are announced as
+  future "Edu Courses" and appear only as unlinked *Coming soon* cards.
 - Students are children. Every form collects a child's name, grade and a
-  parent's phone/email, so PII handling and India's DPDP Act matter. Consent is
-  recorded before the app can be used: email sign-up requires the checkbox, and
-  Google/phone users hit a **non-dismissable** `ProfileCompletionDialog` that
-  must be completed (name + consent) or the user signs out (audit FL-04).
-- **Three membership tiers, sold through the site**: Free ₹0, Pro ₹1,999/mo,
-  Academy ₹3,999/mo. Paid by Razorpay Checkout; the membership is granted by a
-  signed webhook, never by the browser. A month at a time, expiry applied at
-  read time.
-- Tiers decide two things: the daily puzzle allowance (5 / 50 / unlimited) and
+  parent's phone/email, so PII handling and India's DPDP Act matter.
+- **Three membership tiers**: Free ₹0, Pro ₹1,999/mo, Academy ₹3,999/mo.
+  Tiers decide two things: the daily puzzle allowance (5 / 50 / unlimited) and
   which course chapters are watchable (`course_chapters.min_tier`).
-- **Puzzles now require an account.** The free tier is the top of the funnel —
-  five a day, one tap with Google. Engine play at `/practice` remains free and
-  unauthenticated.
-- In-person coaching at the two academies is still arranged and billed offline.
-  It is not what the tiers sell.
+- **Payments are stubbed.** The `payments` table exists with its columns and
+  its RESTRICT foreign key so a receipt has somewhere to go, but nothing in the
+  app writes one and no code processes money. A family pays at the academy or
+  by transfer and an admin sets their plan in Admin → Members. The pricing
+  cards all read "Talk to us about <plan>" and link to `/contact` — which is
+  what every visitor already saw, because the publishable key shipped blank.
+- In-person coaching is arranged and billed offline. It is not what the tiers
+  sell.
 
 ---
 
-## 2. Stack
+## 3. Stack
 
 | Layer | Choice |
 |---|---|
 | Frontend | React 18, Vite 5, react-router-dom 6, Tailwind 3, Framer Motion (About page only) |
-| UI primitives | Hand-rolled shadcn-style in `src/components/ui/` (Radix Slot + CVA + tailwind-merge) |
+| UI primitives | Hand-rolled shadcn-style in `src/components/ui/` — `Button` and `Card`, both used only by About |
 | Auth / DB / Storage | Supabase (Postgres + Auth + Storage), accessed from the browser with the anon key |
-| Sign-in | Google OAuth by default. Email/password and phone OTP are built and gated behind `VITE_AUTH_METHODS` |
-| Serverless | Supabase Edge Functions (Deno/TypeScript) — `send-email`, `razorpay-order`, `razorpay-webhook` |
-| Transactional email | Resend, called from `send-email`, triggered by Database Webhooks |
-| Payments | Razorpay Checkout (script loaded on demand, not bundled) |
+| Sign-in | Email/password and Google OAuth by default; phone OTP is built and gated behind `VITE_AUTH_METHODS` |
+| Server code | **None.** Six SQL files, run by hand |
+| Transactional email | **None.** Supabase's default auth emails only |
+| Payments | Stubbed. Schema present, no flow |
 | Chess rules | `chess.js` v1 |
-| Chess engine | Stockfish 16 NNUE single-threaded WASM, **vendored** in `public/stockfish/`, run in a Web Worker |
-| Backend | FastAPI (Python 3.12 target), in `backend/`. **Written and tested, still not deployed** — nothing shipped depends on it |
-| Lint | ESLint 9 flat config with `react`, `react-hooks`, `jsx-a11y` |
+| Chess engine | Stockfish 16 NNUE single-threaded WASM, vendored in `public/stockfish/`, run in a Web Worker |
+| Lint | ESLint 9 flat config with `react`, `react-hooks`, `jsx-a11y`. `npm run lint` — 0 errors, 23 warnings |
 | Tests | None. No test runner is configured |
 | Language | JavaScript, no TypeScript |
 
-There is **no server-side rendering**. It is a static SPA plus Supabase.
+There is no server-side rendering. It is a static SPA plus Supabase.
 
 ---
 
-## 3. Repository layout
+## 4. Repository layout
 
 ```
 src/
   pages/          one component per route
   components/
     admin/        one component per admin tab
-    ui/           shadcn-style primitives
-  lib/            supabaseClient, AuthContext, api, media, sound,
-                  stockfishEngine, gameAnalysis, chessMoves, puzzles, utils
+    ui/           Button, Card
+  lib/            supabaseClient, AuthContext, media, useSignedVideo, sound,
+                  stockfishEngine, gameAnalysis, chessMoves, puzzles,
+                  puzzleProgress, tiers, authMethods, utils
   data/mockData.js  all static copy and config
-backend/          FastAPI service (own Dockerfile, own requirements.txt)
-  app/            main.py, auth.py, config.py
-  scripts/        import_lichess_puzzles.py (one-off operational script)
-supabase/         flat .sql migrations, run MANUALLY in the SQL editor
-  functions/      Edge Functions (Deno/TypeScript), deployed with the CLI
-emails/auth/      Supabase Auth templates, pasted into the dashboard by hand
+supabase/         THE BACKEND. Six numbered .sql files, run by hand
+scripts/          import_lichess_puzzles.py — the one operational script
 public/           stockfish WASM, sounds, icons, _redirects
-assets-src/       full-resolution artwork, deliberately NOT shipped
-docs/             ARCHITECTURE.md, ROADMAP.md, TESTING.md, this file
+docs/             this file, ARCHITECTURE, ROADMAP, TESTING, archive/
+RESET-AND-APPLY.md  the one manual session that applies all of the above
 ```
 
-**Migrations are manual.** Adding a `.sql` file does nothing until someone runs
-it in the Supabase dashboard, in the order listed in `docs/DEPLOYMENT.md §5`.
-(Filename order is **not** a valid run order — see audit finding DB-01.)
+### The six files, and the order they run in
+
+Order is the file number. It is not a convention, it is a dependency: `03`
+calls functions defined in `02`, `04` calls functions defined in `02` and reads
+tables defined in `01`.
+
+| File | What it owns |
+|---|---|
+| `00_teardown.sql` | **Path A only.** Drops the old policies, trigger functions and two dead tables, then reports anything the baseline does not manage. |
+| `01_schema.sql` | Every table, column, constraint and index. Enables RLS immediately after each `CREATE TABLE`, so no table exists un-RLS'd for even one file. |
+| `02_functions.sql` | The complete function set. Nineteen functions and one trigger. |
+| `03_rls.sql` | The whole policy matrix, plus four self-checks that raise rather than warn. |
+| `04_storage.sql` | Buckets and storage policies. This is the paid-video paywall. |
+| `05_seed.sql` | Guarded seeds. A no-op on a project that already has content. |
+
+This replaced 22 flat migration files with no ledger, whose filename order was
+not a valid run order. They are archived at
+`docs/archive/migrations-pre-baseline/`.
 
 ---
 
-## 4. Routes
+## 5. Routes
 
 | Path | Page | Auth | Footer |
 |---|---|---|---|
@@ -97,509 +127,355 @@ it in the Supabase dashboard, in the order listed in `docs/DEPLOYMENT.md §5`.
 | `/puzzles` | Puzzle trainer | **required** | no |
 | `/practice` | Play vs engine | public | no |
 | `/tournaments` | Tournaments + registration | public | yes |
-| `/upgrade` | Plan comparison + Razorpay checkout | public | yes |
+| `/upgrade` | Plan comparison | public | yes |
 | `/contact` | Contact form | public | yes |
 | `/dashboard` | Plan, puzzle progress, registrations, profile | **required** | no |
 | `/mylearning` | Course shortcuts | **required** | no |
 | `/admin` | Admin panel | **admin role** | no |
-| `*` | 404 page | public | no |
+| `*` | 404 | public | no |
 
-- Auth-gated routes use `<RequireAuth>`, which prompts in place with a sign-in
-  modal rather than redirecting (sign-in is a modal, so a redirect loses intent).
-  It takes its eyebrow/title/blurb as props — `/puzzles` pitches the free
-  account rather than saying "we need to know who you are".
-- `/admin` self-gates on `profile.role === 'admin'` inside the page.
-- The footer is an allow-list (`FOOTER_ROUTES` in `App.jsx`), not global.
-- SPA fallback is configured via `public/_redirects` (Netlify/Cloudflare) and
-  `vercel.json` (Vercel).
+`<RequireAuth>` prompts in place with a sign-in modal rather than redirecting.
+`/admin` self-gates on `profile.role === 'admin'` in the page — cosmetically;
+`is_admin()` in RLS is what actually enforces it.
 
 ---
 
-## 5. Feature inventory
+## 6. The four rules worth understanding
 
-### 5.1 Marketing site
-- **Home**: hero + video, an auto-advancing "Why playing chess" slider (6
-  benefits, inline SVG art, 2s cadence, pause on hover/focus, arrows flanking
-  the slide, dots, swipe, arrow keys, disabled under `prefers-reduced-motion`),
-  "What we offer" (3 cards), "Achievements" carousel, testimonials, contact form.
-- **About**: story, values, milestones (2016 founded, 5000+ students, 2 offline
-  academies, 100k+ puzzles), pricing tiers, gallery, CTAs.
-- **Courses**: Chess section (linked) + Edu Courses section (Maths, English, AI
-  as unlinked *Coming soon* cards).
-- **Course detail**: chapter accordion backed by `course_chapters` + `videos`,
-  with an inline player.
-- **Workshops**: database-backed since the workshops schema landed. Lists
-  published, future rows and takes registrations, same shape as tournaments.
-  Seeded with the four formats the static page used to describe.
-- **Tournaments**: lists published, future tournaments; per-tournament
-  registration form writing to `tournament_registrations`.
-- **Upgrade**: the three plans, with Razorpay checkout. The same cards and the
-  same checkout hook power the Programs & Pricing block on About — they are
-  one component (`PlanCard` + `usePlanCheckout`) so the two can't drift.
-- **Contact**: form writing to `contact_submissions`.
-- **Footer**: two academies, hours, email, phone, nav links.
+Everything else is ordinary CRUD. These four are where the thinking is.
 
-Tournaments and workshops share `EventCard`, `EventRegistrationForm` and the
-`AdminEvents` management surface: identical fields into identically shaped
-tables. Capacity and the registration deadline are enforced by a `BEFORE
-INSERT` trigger, not by the form; `tournament_spots_left()` /
-`workshop_spots_left()` expose a count to `anon` and nothing else.
+### 6.1 The course-video paywall
 
-### 5.2 Puzzle trainer (`/puzzles`)
-- 13 categories x 3 difficulty bands, backed by 123,297 imported Lichess puzzles.
-- Categories: mateIn1/2/3, backRankMate, smotheredMate, fork, pin, skewer,
-  hangingPiece, discoveredAttack, doubleCheck, deflection, sacrifice.
-- Difficulty from rating: easy <1300, medium 1300-1800, hard >1800.
-- Random batch of 20 per session via the `random_puzzles` RPC; reshuffles when
-  exhausted so the stream never ends.
-- Solve flow: student plays the expected move; wrong moves flash and reset;
-  multi-ply puzzles auto-play the opponent's forced reply.
-- Board flips when the student plays Black (~half of all Lichess puzzles).
-- **Sign-in required, and the daily allowance comes from the tier** — 5 / 50 /
-  unlimited. This is a **soft** cap, not a hard boundary (audit finding FE-02).
-  A `BEFORE INSERT` trigger on `puzzle_attempts` refuses rows past the limit,
-  batches are handed out by `random_puzzles_for_user()` which checks the
-  allowance first, and `EXECUTE` on `random_puzzles()` is revoked from PUBLIC,
-  `anon` and `authenticated` so the wrapper can't be stepped around. But the
-  count is derived from `puzzle_attempts`, which the client writes, so a client
-  that never logs an attempt is never counted. That is accepted here: the
-  puzzles are free public Lichess data, so the cap is a signup/upgrade nudge,
-  not protection of a scarce resource.
-- **Progress is recorded.** One `puzzle_attempts` row per concluded puzzle;
-  a puzzle that needed a retry is `solved = false`. Logging is fire-and-forget
-  so a failed insert never interrupts a child mid-puzzle.
-- `puzzle_stats()` feeds the dashboard: totals, solved today, current streak,
-  per-category counts. Days bucket in **Asia/Kolkata**, not UTC — a UTC day
-  ends at 5:30 AM local and would break every evening streak.
+The paid product is course video, and it used to be protected by a React
+`tierAllows()` check while `videos` carried a public CDN `url` and the bucket
+was public. A signed-out visitor could read a locked video's link out of the
+network tab and stream it. The code admitted this in a comment.
 
-### 5.3 Play vs engine (`/practice`)
-- Stockfish in a Web Worker, fully offline once loaded.
-- Six difficulty tiers exposed as a dropdown on the board's top bar.
-- **Strength model**: tiers at 1500+ use Stockfish's own `UCI_LimitStrength` +
-  `UCI_Elo` and are genuinely calibrated. `UCI_Elo` bottoms out at **1320**, so
-  the 500 and 1000 tiers are approximated by hand: `Skill Level 0`, a shallow
-  depth cap, and MultiPV candidate sampling that deliberately picks a weaker
-  *engine line* (never a random legal move, which would look broken rather than
-  weak). Measured on 24 one-move tactics: 1 / 11 / 22 / 23 / 24 / 24 solved
-  across the six tiers.
-- "Play as Black/White" swaps colour and starts a fresh game; the engine opens
-  as White when the student takes Black.
-- Undo, reset, board coordinates (a-h, 1-8) inside the edge squares.
-- **Game review** on game over: every position analysed at depth 12 by a
-  *separate full-strength* engine instance. Reports per-side accuracy, estimated
-  rating, average centipawn loss, a Best/Excellent/Good/Inaccuracy/Mistake/
-  Blunder breakdown, and the three costliest moves with the engine's preference.
+How it works now:
 
-### 5.4 Auth
-- **Google OAuth is the default and only enabled method.** `VITE_AUTH_METHODS`
-  (default `google`) decides what the modal offers. Email/password and phone
-  OTP are written and working but switched off, because Supabase's built-in
-  email sender is throttled to a few messages an hour and phone OTP needs a
-  paid SMS provider plus TRAI DLT registration. Google needs neither: it is on
-  the free plan and sends no email through Supabase at all.
-- Email sign-up (when enabled) requires 8+ chars with a letter and a number,
-  plus a parent/guardian consent checkbox passed through as user metadata.
-- `AuthContext` exposes `session`, `user`, `profile`, `tier`, `loading`,
-  `authError`, `refreshProfile`, `signUp`, `signIn`, `signInWithGoogle`,
-  `signInWithPhone`, `verifyPhoneOtp`, `signOut`. `tier` already has expiry
-  applied.
-- `handle_new_user()` creates the `profiles` row. It is null-safe on purpose:
-  phone-only users have no email, Google sends `full_name` not `name`, and the
-  name is truncated to 80 chars or the `profiles_name_len` constraint would
-  abort the sign-up with an opaque error.
-- `ProfileCompletionDialog` at the app root collects name and consent (grade
-  optional) from anyone who arrived by a route with no form to ask on (Google,
-  phone). It is **non-dismissable** — complete it or sign out — so consent is
-  recorded before the app is used (audit FL-04).
-- Roles: `student` (default) and `admin`. Promotion is manual via SQL.
+1. `course-videos` is a **private** bucket. There is no public URL.
+2. `videos.url` is **gone**. The table stores `storage_path` only.
+3. A SELECT policy on `storage.objects` calls
+   `can_read_course_object(name)`, which looks the object up in `videos`,
+   joins to its chapter, and compares `course_chapters.min_tier` against
+   `current_tier()`.
+4. The browser calls `createSignedUrl()`, which requires exactly one thing:
+   SELECT permission on `storage.objects`. So the policy is the whole gate.
 
-### 5.5 Admin panel (`/admin`)
-Eight tabs, all writing directly to Supabase from the browser under admin RLS:
-Videos (upload to Storage, chapter management with a per-chapter tier
-selector, delete), Carousels, Testimonials, Gallery, Tournaments, Workshops,
-Members, Enquiries inbox.
+Two consequences that are easy to get wrong:
 
-- Tournaments and Workshops share `AdminEvents`: create, **real UPDATE
-  editing**, publish/unpublish, delete, the registration list, CSV export.
-  Editing used to be delete-and-recreate, which cascade-deleted registrations;
-  the foreign keys are `ON DELETE RESTRICT` now and the UPDATE policies exist.
-- Members lists everyone with their plan and expiry (via the admin-gated
-  `admin_list_members()`, because emails live in `auth.users`) and sets a tier
-  through `admin_set_tier()`. For comps and for payments the webhook missed —
-  ordinary upgrades activate themselves.
-- CSV export guards against formula injection: a cell starting `=`, `+`, `-`
-  or `@` is prefixed with a quote, and the file carries a UTF-8 BOM so Excel
-  doesn't mangle non-ASCII names.
+- **`videos` is still world-readable, deliberately.** It is the course outline
+  — chapter titles, video titles, object paths. A locked chapter has to render
+  with a padlock for someone deciding whether to pay. Knowing the name of a
+  file you cannot read is harmless.
+- **The marketing clips are an allowlist, not a path rule.** `homepage.mp4`
+  and `chess.mp4` are named literally in `can_read_course_object()`. The
+  tempting version — "anything at the bucket root is public" — reads well and
+  fails badly, because the Storage dashboard's default upload target *is* the
+  root, so one drag-and-drop would publish a paid lesson silently.
 
-### 5.6 Payments
-- `/upgrade` (and the About pricing block) opens Razorpay Checkout. The script
-  is injected on first click, not bundled.
-- `razorpay-order` decides the **amount** from the tier server-side and creates
-  the order with the key secret. Neither may ever reach the browser.
-- `razorpay-webhook` verifies Razorpay's HMAC over the **raw** body and calls
-  `record_razorpay_payment()`. That function is what grants a membership. The
-  browser's success callback grants nothing — it can be forged, and it never
-  fires if the customer closes the tab after paying.
-- Activation is idempotent: the row is locked and an already-paid order
-  returns early, so Razorpay's retries and its duplicate
-  `payment.captured`/`order.paid` pair cannot buy two months.
-- Time is added from whichever is later, the current expiry or now.
+**Residual, and it is real:** the policy is evaluated once, at signing time,
+and `expiresIn` is chosen by the caller. A paying Pro subscriber can enumerate
+`storage_path`, mass-sign every chapter their tier allows with a ten-year
+expiry, and publish the list; a lapsed membership does not invalidate URLs
+already minted. What this design stops is the *anonymous* bypass. What it does
+not stop is a paying customer abusing their own access. Capping the TTL needs a
+server-fixed value, which means one Edge Function — see §9.
 
-### 5.7 Transactional email
-`send-email` (Edge Function) is called by three Database Webhooks — INSERT on
-`tournament_registrations`, `workshop_registrations` and `contact_submissions`
-— and relays a branded email through Resend. Registration rows carry only the
-event FK, so the function reads the parent row back with the service-role
-client. It rejects any request whose `Authorization` bearer doesn't match, and
-fails closed if no secret is configured. Supabase's own auth emails (confirm
-signup, reset password) are separate templates in `emails/auth/`, pasted into
-the dashboard by hand.
+### 6.2 The puzzle allowance
+
+Free 5 / Pro 50 / Academy unlimited, and it is a real boundary now.
+
+It used to be counted from `puzzle_attempts` — rows the client writes
+fire-and-forget — so a client that never logged an attempt was never counted.
+The tier difference could not actually be delivered.
+
+Counting happens **on the way out**. `random_puzzles_for_user()` takes a row
+lock on `puzzle_allowance` for (user, IST day), clamps the batch to what is
+left, hands over puzzles, and increments by the number of rows it actually
+returned. The client cannot decline to be counted because it is not counting.
+
+Follow-on effects, all deliberate:
+
+- `puzzle_attempts` is now purely a record of outcomes. It feeds the dashboard
+  streak and gates nothing. A lost row costs a tick, not an entitlement.
+- The old `enforce_puzzle_quota` trigger is deleted rather than fixed. It
+  counted then checked with no lock and could overshoot by one; the row lock
+  makes the whole class of problem disappear.
+- **`lichess_puzzles` has no policy and no client grant.** This is the part
+  that is easy to miss: PostgREST serves every table in `public` that a client
+  role can select, whatever the React app happens to call. A `using (true)`
+  policy on the puzzle table meant `GET /rest/v1/lichess_puzzles?limit=1000`
+  returned puzzles in bulk to anyone with the anon key, which walked around the
+  meter entirely. Delivery still works because `random_puzzles()` is called
+  from inside a `SECURITY DEFINER` function, where `current_user` is the table
+  owner.
+- The client asks for **5** at a time, not 20. Puzzles are charged when handed
+  over, so a 20-batch would spend a Free account's whole day on page load.
+- The picker shows the allowance *before* a category is chosen, via the
+  read-only `puzzle_quota()`, so nobody spends five puzzles finding out they
+  had five.
+
+Days bucket in **Asia/Kolkata** (`ist_today()`). A UTC day ends at 5:30 AM in
+Visakhapatnam and would reset the allowance mid-morning.
+
+### 6.3 Event registration
+
+There is no client INSERT policy on either registration table. Rows arrive
+only through `register_for_event()`, which does, in order:
+
+1. Rate-limit checks on three scopes: email (5/hour), account (10/hour) and
+   **event** (30/hour).
+2. Records the **attempt** — before the decision, not after the success.
+3. `SELECT … FOR UPDATE` on the event row, so everyone racing for the last
+   seat of that event is serialised until COMMIT.
+4. Already-registered → closed → full, in that order. "You are already in" is
+   the most useful thing to tell someone who resubmits, and it is true whether
+   or not the event is now full.
+5. Inserts, taking `user_id` from `auth.uid()` — never from the caller.
+
+**It returns a status; it does not raise.** This is the non-obvious part. A
+raised exception aborts the transaction, which rolls back the rate-limit row
+too — so a *failed* attempt cost nothing and never accrued against the
+throttle. That turned the friendly duplicate check into a free, unlimited
+oracle: "is child X registered for event Y under parent Z's email?", answered
+from the error text, forever. Returning a status commits the attempt record.
+For the same reason, a missing event and an unpublished draft return the
+*same* status — two different answers would let anyone enumerate unpublished
+events by walking the id.
+
+**Residual:** the throttle is keyed on values the caller supplies, so someone
+with an endless supply of fresh email addresses and patience can still fill an
+event a burst at a time. The per-event ceiling bounds the rate, not the total.
+Closing it needs something the caller cannot invent — required sign-in, or a
+CAPTCHA. Meanwhile admins *can* delete registrations, so a burst is cleanable
+from the panel rather than the SQL Editor.
+
+### 6.4 The joining link
+
+`event_meeting_links` is a separate table with RLS on and **no policies at
+all**, which is a total refusal for every client role in every direction. The
+only ways in are `event_meeting_url()` (signed in, and registered for that
+event, or admin) and `admin_set_meeting_url()`.
+
+It is a separate table rather than a `meeting_url` column on `workshops`
+because RLS is row-level: a column could only be hidden with column-level
+SELECT grants, which stop protecting anything the first time someone adds a
+column and forgets to restate the grant — and which break `select *` across
+the whole client. A table with no policies cannot be undone by forgetting.
+
+An **anonymous** registration cannot see the link; there is no account to match
+it to. Register while signed in.
 
 ---
 
-## 6. Data model
+## 7. Data model
 
-All tables are in `public`, all have RLS enabled. `is_admin()` is a
-`SECURITY DEFINER` helper that reads `profiles.role`, used by every admin policy
-(defined this way to avoid infinite RLS recursion on `profiles`).
+All tables are in `public`. All have RLS enabled. `is_admin()` is the single
+admin gate, used by every admin policy — there are zero inline
+`role = 'admin'` subqueries, and `03_rls.sql` has a self-check that fails if
+one reappears.
+
+### Tables a client can reach
+
+| Table | SELECT | INSERT | UPDATE | DELETE |
+|---|---|---|---|---|
+| `profiles` | own, or admin | own, pinned to `role='student'`, `tier='free'` | own row; **columns limited to `name`, `grade`, `consent_at`** | — |
+| `contact_submissions` | own, or admin | anyone (uid-bound) | — | — |
+| `tournaments` / `workshops` | published, or admin | admin | admin | admin |
+| `tournament_registrations` / `workshop_registrations` | own, or admin | — (RPC only) | — | admin |
+| `puzzle_attempts` | own, or admin | own | — | — |
+| `payments` | own, or admin | — | — | — |
+| `videos` / `course_chapters` | **anyone** (the course outline) | admin | admin | admin |
+| `carousel_slides` / `gallery_images` / `testimonials` | published, or admin | admin | admin | admin |
+
+### Tables no client can reach
+
+RLS on, zero policies, privileges revoked. Reachable only through
+`SECURITY DEFINER` functions.
+
+`event_meeting_links` · `registration_rate_limit` · `puzzle_allowance` ·
+`lichess_puzzles`
+
+### The column grant
+
+```sql
+revoke update on public.profiles from anon, authenticated;
+grant  update (name, grade, consent_at) on public.profiles to authenticated;
+```
+
+This, not any policy, is what stops a student promoting themselves to admin or
+upgrading themselves to academy. **If you add a column the client must write,
+name it here or the write silently no-ops.** That has bitten this project once.
+
+`role`, `tier` and `tier_expires_at` are outside it. Tier changes go through
+`admin_set_tier()`.
 
 ### profiles
+
 ```
 id               uuid PK -> auth.users(id) on delete cascade
-name             text
-grade            text
+name             text            -- <= 80 chars
+grade            text            -- <= 40 chars
 role             text not null default 'student'   -- 'student' | 'admin'
 tier             text not null default 'free'      -- 'free' | 'pro' | 'academy'
 tier_expires_at  timestamptz                       -- null = no expiry (comped)
 consent_at       timestamptz                       -- parent/guardian consent
-rank_points      integer not null default 0        -- legacy, no longer written
 created_at       timestamptz not null default now()
 ```
-RLS: a user reads and updates **only their own row**. The client's UPDATE
-privilege is column-level and covers exactly `name`, `grade`, `consent_at` —
-so `role`, `tier` and `tier_expires_at` are unwritable from the browser. That
-grant is the whole defence; if you add a column the client must write, you
-have to name it in the grant or the write silently no-ops. Tier changes go
-through `admin_set_tier()` or the Razorpay webhook. Admins read all rows.
-Auto-created by the `handle_new_user()` trigger.
 
-### quest_progress
-```
-id            bigint identity PK
-user_id       uuid not null -> auth.users(id) cascade
-subject       text not null
-quest_key     text not null
-points        integer not null default 0
-completed_at  timestamptz not null default now()
-unique (user_id, quest_key)
-```
-**Legacy.** The client no longer writes here; the points feature was removed.
-Rows and columns are retained so the decision is reversible.
+`rank_points` is gone, with `quest_progress` and its self-award trigger.
 
-### contact_submissions
+### puzzle_allowance — the meter
+
+```
+user_id     uuid    -> auth.users(id) cascade
+usage_date  date                     -- Asia/Kolkata day
+delivered   integer not null default 0
+primary key (user_id, usage_date)
+```
+
+### registration_rate_limit
+
 ```
 id          bigint identity PK
-user_id     uuid -> auth.users(id) on delete set null
-name        text not null
-grade       text
-email       text not null
-struggles   text
+scope       text not null check in ('email','user','event')
+key         text not null
 created_at  timestamptz not null default now()
 ```
-RLS: anyone may insert (with a forged-`user_id` guard and length caps); users
-read their own; admins read all.
 
-### tournaments
-```
-id                     bigint identity PK
-title                  text not null
-description            text
-format                 text not null check in ('online','offline')
-venue                  text            -- address, or platform/link if online
-start_at               timestamptz not null
-registration_deadline  timestamptz
-fee                    text            -- free text, e.g. "Free" or "₹500"
-capacity               integer
-published              boolean not null default true
-created_at             timestamptz not null default now()
-```
-RLS: published rows are public; admins see and manage all.
+### event_meeting_links
 
-### tournament_registrations
 ```
 id             bigint identity PK
-tournament_id  bigint not null -> tournaments(id) on delete cascade
-user_id        uuid -> auth.users(id) on delete set null
-child_name     text not null
-grade          text
-parent_name    text not null
-parent_email   text not null
-parent_phone   text
-notes          text
-created_at     timestamptz not null default now()
-```
-RLS: anyone may insert (forged-`user_id` guard, plus a published + deadline
-check in the policy itself); users read their own; admins read all. A unique
-index on `(tournament_id, lower(parent_email), lower(child_name))` blocks
-duplicates. The FK is `ON DELETE RESTRICT` — these are business records for a
-paid event, and cascade-delete behind one `window.confirm()` is not
-recoverable. A `BEFORE INSERT` trigger raises `EVENT_FULL` or
-`REGISTRATION_CLOSED`, taking an advisory transaction lock so two parents
-taking the last seat at once is settled by the database, not by luck.
-
-### workshops / workshop_registrations
-The same two tables again, same columns, same policies, same trigger, same
-unique index, same `ON DELETE RESTRICT`. Seeded with four published rows so
-`/workshops` is never empty.
-
-### puzzle_attempts
-```
-id          bigint identity PK
-user_id     uuid not null -> auth.users(id) cascade
-puzzle_id   text not null -> lichess_puzzles(puzzle_id)
-solved      boolean not null
-category    text
-difficulty  text
-created_at  timestamptz not null default now()
-```
-RLS: insert and read **own rows only**; admins read all. No UPDATE or DELETE
-policy at all — an attempt is a fact about what happened and nothing edits
-one. Index on `(user_id, created_at)`. A `BEFORE INSERT` trigger enforces the
-tier's daily allowance.
-
-### payments
-```
-id                   bigint identity PK
-user_id              uuid not null -> auth.users(id) cascade
-tier                 text not null check in ('pro','academy')
-months               integer not null default 1
-amount_paise         integer not null
-currency             text not null default 'INR'
-razorpay_order_id    text not null unique
-razorpay_payment_id  text
-status               text not null default 'created'  -- created|paid|failed
-created_at           timestamptz not null default now()
-paid_at              timestamptz
-```
-RLS: users read their own, admins read all, and **there is deliberately no
-INSERT or UPDATE policy**. Every write comes from an Edge Function using the
-service-role key, because a client that could write here could grant itself a
-membership.
-
-### videos
-```
-id            bigint identity PK
-title         text not null
-category      text not null check in ('chess','maths','english')
-chapter       text            -- matches course_chapters.title
-url           text not null   -- public Storage CDN URL
-storage_path  text
-uploaded_by   uuid -> auth.users(id) on delete set null
-created_at    timestamptz not null default now()
-```
-RLS: **world-readable** (`using (true)`) and the `course-videos` bucket is
-public. See the security notes below.
-
-### course_chapters
-```
-id          bigint identity PK
-category    text not null check in ('chess','maths','english')
-title       text not null
-position    integer not null default 0
-created_at  timestamptz not null default now()
-min_tier    text not null default 'pro'   -- 'free' | 'pro' | 'academy'
-unique (category, title)
-```
-`min_tier` decides who can open a chapter. Defaulting to `pro` means existing
-chapters became paid the moment the migration ran; mark a taster chapter
-`free` from the admin Videos tab.
-
-### carousel_slides / gallery_images
-```
-id            bigint identity PK
-storage_path  text not null
-caption       text
-position      integer not null default 0     -- carousel only
-category      text                           -- gallery only, e.g. 'about'
-published     boolean not null default true
-uploaded_by   uuid -> auth.users(id) on delete set null
-created_at    timestamptz not null default now()
+workshop_id    bigint -> workshops(id) cascade      -- exactly one of these
+tournament_id  bigint -> tournaments(id) cascade    -- two is not null
+meeting_url    text not null   -- must match ^https?://, <= 500 chars
+updated_at     timestamptz not null default now()
 ```
 
-### testimonials
-```
-id          bigint identity PK
-name        text not null
-role        text
-quote       text not null
-rating      integer not null default 5 check between 1 and 5
-published   boolean not null default true
-created_at  timestamptz not null default now()
-```
+### payments — stubbed
 
-### puzzles
-Legacy hand-generated set, superseded by `lichess_puzzles`. Not read by the app.
+Columns are provider-agnostic now (`provider_order_id`,
+`provider_payment_id`); nothing in the app names a payment provider.
+`user_id` is **ON DELETE RESTRICT** — deleting an auth user must not destroy
+their financial record. For a future DPDP erasure flow, prefer making
+`user_id` nullable and switching to `ON DELETE SET NULL` so an anonymised
+receipt survives the account.
 
-### lichess_puzzles  (the live puzzle source, 123,297 rows)
-```
-puzzle_id     text PK            -- Lichess id, e.g. '00sHx'
-fen           text not null      -- position BEFORE the opponent's move
-moves         text[] not null    -- UCI; moves[1] is the OPPONENT's move
-rating        integer not null
-rating_dev    integer
-popularity    integer
-nb_plays      integer
-themes        text[] not null default '{}'
-game_url      text
-opening_tags  text[]
-rand          double precision not null default random()
-```
-Indexes: GIN on `themes`, btree on `rating`, `rand`, and `(rating, rand)`.
-RLS: world-readable, no client write policy at all.
+### lichess_puzzles
 
-**FEN convention (verified against the real import, do not change):** the stored
-`fen` is the position *before* the opponent's move. `moves[0]` (JS index) is
-played by the opponent; the student solves from the position after it. Verified:
-75/75 sampled mate puzzles reach real checkmate with solution lengths of exactly
-1/3/5 plies for mateIn1/2/3, and the student plays Black in roughly half.
+~123,297 rows imported from database.lichess.org (CC0). Not client-readable.
 
-### RPC: `random_puzzles(p_themes text[], p_min_rating int, p_max_rating int, p_limit int)`
-`VOLATILE`, `SECURITY INVOKER` (RLS still applies), granted to `anon` and
-`authenticated`. Filters into a materialised pool by theme + rating, then
-`order by random() limit N`. The earlier `rand > random() order by rand` version
-made the planner walk the `rand` index hunting for rare themes, which hit the
-statement timeout on cold cache and returned short batches; the pool is small by
-construction so sorting it is cheap.
-
-**Not callable from the client any more.** `EXECUTE` is revoked from `PUBLIC`,
-`anon` and `authenticated`; the app calls `random_puzzles_for_user()` instead,
-which checks the caller's allowance and then delegates. Revoking from `PUBLIC`
-matters — Postgres grants EXECUTE to `PUBLIC` by default and a revoke aimed
-only at the two roles leaves that in place.
-
-### Other RPCs
-
-| Function | Security | Granted to | Purpose |
-|---|---|---|---|
-| `random_puzzles_for_user(...)` | DEFINER | authenticated | quota check, then delegates to `random_puzzles` |
-| `puzzle_quota()` | DEFINER | authenticated | `{tier, daily_limit, used_today, remaining}` |
-| `puzzle_stats()` | INVOKER | authenticated | totals, streak, per-category |
-| `current_tier()` | DEFINER | authenticated | tier with expiry applied |
-| `tier_rank()`, `tier_daily_puzzles()` | immutable | anon, authenticated | the tier table, as functions |
-| `tournament_spots_left(bigint)` | DEFINER | anon, authenticated | a count, no PII |
-| `workshop_spots_left(bigint)` | DEFINER | anon, authenticated | a count, no PII |
-| `admin_set_tier(uuid,text,timestamptz)` | DEFINER | authenticated (gated on `is_admin()`) | comps and fixes |
-| `admin_list_members()` | DEFINER | authenticated (gated on `is_admin()`) | joins `auth.users` for emails |
-| `record_razorpay_payment(text,text)` | DEFINER | **service_role only** | grants the membership |
-| `is_admin()` | DEFINER | anon, authenticated | the admin predicate every policy uses |
-
-`tier_daily_puzzles()` is the single source of truth for 5 / 50 / unlimited.
-`src/lib/tiers.js` mirrors it for display only — if you change one, change
-both, or the UI promises a limit the database refuses.
-
-### Storage buckets
-`course-videos`, `carousel-images`, `gallery-images` — all currently **public
-read**.
+**FEN convention, verified against the real import, do not change:** the
+stored `fen` is the position *before* the opponent's move. `moves[1]`
+(1-indexed SQL) is played by the OPPONENT; the student solves from the
+position after it. The board flips when the student plays Black, which is
+about half of all puzzles.
 
 ---
 
-## 7. Frontend architecture notes
+## 8. The function set
 
-- **`src/data/mockData.js`** holds all static copy and config: `NAV_LINKS`,
-  `COURSES_DROPDOWN`, `SUBJECT_TILES`, `EDU_COURSES`, `CHESS_BENEFITS`,
-  `PRICING_TIERS`, `CORPORATE_DETAILS`, `ENGINE_LEVELS`, `GLYPHS_B`.
-  `PRICING_TIERS` is **derived** from `src/lib/tiers.js`, not written out
-  again — a price card that disagreed with what the account actually grants is
-  worse than no card.
-- **`src/lib/tiers.js`** is the display half of the tier contract: names,
-  prices, `amountPaise`, feature lists, `tierAllows()`, `effectiveTier()`.
-  The charging half is the `PRICES` table in `supabase/functions/razorpay-order`.
-  Both must be changed together; each file says so.
-- **`stockfishEngine.js`** wraps the worker in a UCI text protocol client:
-  `init()` resolves only on real `readyok` (15s cap), `search()` returns
-  `{best, candidates, score}` parsed from `info` lines, `evaluate()` for
-  analysis, `setStrength(level)` for the two strength regimes. Every search has
-  a timeout and the pending queue stays aligned with `go` commands so a late
-  reply is never handed to the next caller.
+Nineteen functions, one trigger. Every `SECURITY DEFINER` one pins
+`search_path = public` and checks its own caller; `02_functions.sql` ends with
+a self-check that fails if either stops being true.
+
+| Function | Callable by | Purpose |
+|---|---|---|
+| `is_admin()` | anon, authenticated | the single admin gate |
+| `handle_new_user()` | *(trigger only)* | creates the profile row at sign-up |
+| `tier_rank()`, `tier_daily_puzzles()` | anon, authenticated | the tier table, as functions |
+| `current_tier()` | authenticated | tier with expiry applied |
+| `ist_today()` | anon, authenticated | the project's day boundary |
+| `random_puzzles()` | **nobody** | the un-metered sampler; internal only |
+| `random_puzzles_for_user()` | authenticated | meters, clamps, delivers, returns the count |
+| `puzzle_quota()` | authenticated | reads the allowance without spending it |
+| `puzzle_stats()` | authenticated | totals, streak, per-category |
+| `tournament_spots_left()`, `workshop_spots_left()` | anon, authenticated | a count, and only a count |
+| `register_for_event()` | anon, authenticated | the only way a registration is created |
+| `event_meeting_url()` | authenticated | the joining link, for registrants |
+| `admin_set_meeting_url()` | authenticated (`is_admin()`) | sets or clears it |
+| `admin_list_members()` | authenticated (`is_admin()`) | joins `auth.users` for emails |
+| `admin_set_tier()` | authenticated (`is_admin()`) | the only way a plan changes |
+| `event_registration_counts()` | authenticated (`is_admin()`) | one aggregate instead of every row |
+| `can_read_course_object()` | anon, authenticated | the storage paywall predicate |
+
+`tier_daily_puzzles()` is the single source of truth for 5 / 50 / unlimited.
+`src/lib/tiers.js` mirrors it for display only — change one and you must change
+the other, or a price card promises an allowance the database refuses.
+
+---
+
+## 9. Known gaps, stated plainly
+
+Each of these is a decision, not an oversight. Two of them have money or
+children's data attached, so they are worth re-reading before the next change.
+
+- **Signed-URL lifetime is client-chosen** (§6.1). A paying subscriber can
+  mint long-lived links for the catalogue their tier allows. Fixing it needs a
+  server-fixed TTL.
+- **Registration throttling is keyed on caller-supplied values** (§6.3). A
+  determined flood with fresh addresses still works, slowly.
+- **Consent is a UI affordance, not a technical boundary.** `consent_at` is in
+  the client's column grant, so a signed-in student can set it from the console
+  exactly as the dialog does, and the result is indistinguishable in
+  `admin_list_members()`. Nothing gates any read or write on
+  `consent_at is not null`. Making it real needs something only a parent holds
+  — a link mailed to the parent's address — which needs the email path this
+  architecture gave up.
+- **Unpublished gallery images stay downloadable.** `published = false` hides
+  the row, not the file; those buckets are public for CDN caching on the
+  logged-out homepage. Since these are photographs of children: to take one
+  down, **delete** it from the admin panel, do not unpublish it.
+- **No transactional email.** Registering for a workshop and submitting the
+  contact form send nothing. Admins see both in the panel. Supabase's own auth
+  emails (confirm signup, reset password) still work, on the default templates.
+- **No auto-renewal, no refund flow, no cron.** Expiry is applied at read time
+  by `current_tier()`, which is why nothing needs to run on a schedule.
+- **No tests.** Verification is `RESET-AND-APPLY.md` §7.
+- **One 743 KB JS chunk**, no code splitting.
+
+### If payments are ever switched on
+
+Two options, in increasing order of code:
+
+1. **Razorpay Payment Links — zero code.** Generate a link per plan in the
+   Razorpay dashboard, put it on the pricing card, and mark the member up in
+   Admin → Members when it clears. Works today. The ledger stays empty.
+2. **One Edge Function pair** — an order-creation function that derives the
+   amount server-side, and a webhook that verifies Razorpay's HMAC and grants
+   the tier. This is the *only* server code this architecture would ever
+   justify, and it would also be the natural home for the signed-URL TTL cap
+   in §6.1. The previous implementation of both is archived at
+   `docs/archive/edge-functions-pre-baseline/` — read it before rewriting it;
+   it was audited and found correct.
+
+---
+
+## 10. Frontend notes
+
+- **`src/data/mockData.js`** holds all static copy and config. `PRICING_TIERS`
+  is *derived* from `src/lib/tiers.js`, not written out again.
+- **`src/lib/useSignedVideo.js`** owns the private-bucket player contract:
+  fetch a signed URL, keep `denied` and `failed` as distinct states, re-mint on
+  `<video onError>` because that is what an expired URL looks like from the
+  element.
+- **`stockfishEngine.js`** wraps the worker in a UCI client. `init()` resolves
+  only on real `readyok` (15s cap); every search has a timeout and the pending
+  queue stays aligned with `go` commands so a late reply is never handed to the
+  next caller.
 - **`gameAnalysis.js`** holds the scoring maths: Lichess win-percent curve,
-  chess.com per-move accuracy, class thresholds, and a rating estimate fitted to
-  published benchmarks (10cp→2500, 40cp→1675, 150cp→900), suppressed under 20
-  moves. Centipawn loss is capped at 1000 when averaging, and the engine's own
-  choice is pinned to zero loss.
+  chess.com per-move accuracy, a rating estimate fitted to published
+  benchmarks, suppressed under 20 moves.
 - **`chessMoves.js`** exists because chess.js v1 **throws** on illegal moves
   rather than returning null. `tryMove()` restores the nullable contract.
 - **`Chessboard.jsx`** is deliberately rigid: fluid mode pins an explicit
   `grid-cols-8 grid-rows-[repeat(8,minmax(0,1fr))]` to `absolute inset-0`. Do
-  **not** reintroduce per-cell `aspect-square`. Every square is a button with an
-  `aria-label` like `"e4, white pawn"`.
-- **`ErrorBoundary`** wraps both the app root and the route outlet.
+  **not** reintroduce per-cell `aspect-square` — that made squares shift and
+  collapse between renders.
+- **Puzzle positions must be legal both ways.** Check that the side to move is
+  not in check *and* that the side not to move is not in check. Missing this
+  shipped broken puzzles once.
 - Supabase errors are surfaced, never swallowed: "failed to load" and "empty"
   are always distinct states.
-
----
-
-## 8. Backend (`backend/`) — written, not deployed
-
-FastAPI. Endpoints: `GET /health`, `GET /me` (auth required),
-`GET /whoami` (auth optional). `/docs` is disabled when
-`ENVIRONMENT=production`. CORS is an explicit origin list, never `*`.
-
-**JWT verification** (`app/auth.py`): this Supabase project signs with an
-asymmetric **ECC P-256 key (ES256)**, so tokens are verified against
-`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`, cached, with a refresh-and-retry
-on an unknown `kid` so key rotation does not 401 everyone. A legacy HS256 path
-remains behind `ALLOW_LEGACY_HS256` for tokens signed by the old shared secret.
-Algorithm confusion is explicitly defended: key material is never chosen by the
-token, so a forged HS256 token signed with the JWKS public key is rejected.
-`smoke_test.py` asserts this with 17 checks.
-
-Config (`backend/.env`): `SUPABASE_URL` (required, also the JWKS source),
-`SUPABASE_JWT_SECRET` (legacy only), `SUPABASE_SERVICE_ROLE_KEY` (unused so
-far), `ALLOW_LEGACY_HS256`, `CORS_ORIGINS`, `ENVIRONMENT`.
-
-Frontend client `src/lib/api.js` attaches the Supabase access token and unwraps
-FastAPI's `detail` into a typed `ApiError`. **It is not imported anywhere yet.**
-
----
-
-## 9. Known gaps and constraints (important for planning changes)
-
-**Security, still open — read this before selling course access:**
-- **Chapter locks are a UI boundary, not a security one.** `videos` is
-  world-readable and `course-videos` is a public CDN bucket, so anyone reading
-  the network tab can fetch a locked video's URL while signed out. Pro and
-  Academy are now sold partly on course access, which makes this the most
-  commercially significant open item in the project. Fixing it means signed
-  URLs, which needs a server — the Edge Functions could do it, the FastAPI
-  service does not have to be deployed for this.
-  The puzzle quota, by contrast, **is** enforced in the database.
-- Unpublished gallery photos of children remain downloadable: `published` hides
-  the row, not the file, and buckets grant anon `list`.
-
-**Closed since the last revision:** the missing UPDATE policies (all seven
-content tables have them, with `USING` *and* `WITH CHECK`); admin edit no
-longer destroys registrations; workshops have a real schema; capacity and
-registration deadlines are enforced server-side; payments exist; parental
-consent is recorded at sign-up (`profiles.consent_at`).
-
-**Not built:** entitlements beyond the tier check, classrooms and homework, AI
-features, PGN-to-video, a published privacy policy (recording consent is not
-the same as having one, and the DPDP Act wants both), subscription
-auto-renewal (a month is bought at a time; nothing charges the card again),
-refunds through the UI, rate limiting or CAPTCHA on the two public forms,
-video captions, per-route SEO metadata.
-
-**Operational notes:**
-- Migrations are manual. The authoritative run order is `docs/DEPLOYMENT.md §5`
-  (filename order is not valid — see audit finding DB-01); each file's header
-  also states its prerequisite.
-- Three Edge Functions must be deployed for the site to be fully functional.
-  `razorpay-webhook` needs `--no-verify-jwt` — Razorpay does not send a
-  Supabase JWT, and the function checks the HMAC itself.
-- Nothing downgrades a lapsed member on a schedule; expiry is applied at read
-  time by `current_tier()` and `effectiveTier()`. This project has no cron.
-
-**Other constraints:** no tests; migrations are manual; the JS bundle is ~715 KB
-(~210 KB gzipped) with no code splitting; `framer-motion` is used by one page.
-The Razorpay checkout script is deliberately *not* in that bundle — it is
-injected on the first upgrade click.

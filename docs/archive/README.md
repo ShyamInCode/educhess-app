@@ -11,7 +11,12 @@ chosen. Nothing here describes the system as it is today — read
 | `AUDIT-REPORT-v2.md` | Re-audit, v2 (2026-08-11, HEAD `50bcfa0`). Its findings, RLS matrix and Client/Server Responsibility Map are the spec the frontend-only baseline was built to satisfy. |
 | `AUDIT-VERIFICATION-QUERIES-v2.sql` | Paste-ready SQL for v2's findings. |
 | `migrations-pre-baseline/` | Every `.sql` migration that existed before the consolidation, in the order `DEPLOYMENT.md §5` said to run them. Replaced wholesale by `supabase/01_schema.sql` … `05_seed.sql`. |
-| `edge-functions-pre-baseline/` | The three Supabase Edge Functions (`send-email`, `razorpay-order`, `razorpay-webhook`) and the FastAPI service, removed when the app became frontend-only. |
+| `edge-functions-pre-baseline/` | The three Supabase Edge Functions — `send-email` (Resend, driven by three Database Webhooks), `razorpay-order` and `razorpay-webhook`. The payment pair was audited and found correct; read it before rewriting it. |
+| `fastapi-backend-pre-baseline/` | The FastAPI service (audit SVR-02). Written, tested, never deployed, imported by nothing. Its JWKS/ES256 verification in `app/auth.py` is the part worth keeping if a server ever returns. |
+| `auth-email-templates/` | The branded Supabase Auth templates for confirm-signup and reset-password. Auth emails now use Supabase's defaults; paste these back into the dashboard if you want the branding. |
+| `ARCHITECTURE-pre-baseline.md` | The *proposed* architecture from before the consolidation — a React + FastAPI + Redis design. Never fully built, and superseded; `docs/SYSTEM-OVERVIEW.md` describes what actually exists. |
+| `DEPLOYMENT-pre-baseline.md` | The old deploy runbook: Edge Function deploys, Razorpay secrets, Database Webhooks, and the 17-step migration order. |
+| `TESTING-pre-baseline.md` | A point-in-time test plan for the P2.5/P2.6 changes. |
 
 ## Where each v2 finding ended up
 
