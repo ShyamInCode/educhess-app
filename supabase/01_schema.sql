@@ -45,7 +45,11 @@
 --
 -- `puzzles` is the retired hand-generated set, superseded by
 -- lichess_puzzles and read by nothing.
-drop trigger if exists on_quest_completed on public.quest_progress;
+-- `drop table ... cascade` takes the trigger with it. Dropping the trigger
+-- first would be tidier and would also break every fresh project: DROP TRIGGER
+-- IF EXISTS covers the trigger, not the table it names, so it raises
+-- "relation public.quest_progress does not exist" where the table was never
+-- created. Same trap in 00_teardown.sql, guarded there.
 drop table if exists public.quest_progress cascade;
 drop function if exists public.handle_quest_completed() cascade;
 drop table if exists public.puzzles cascade;
@@ -382,13 +386,37 @@ alter table public.videos add column if not exists storage_path text;
 -- The bucket is private from 04_storage.sql onward, so a stored public URL is
 -- worse than useless — it is a URL that no longer works and still looks
 -- authoritative. Recover the object path from it, then drop the column.
-update public.videos
-   set storage_path = regexp_replace(url, '^.*/object/(public|sign)/course-videos/', '')
- where storage_path is null
-   and url is not null;
+--
+-- Guarded on the column existing, because this file has to survive three
+-- situations and the bare UPDATE only survives one: a fresh project (no `url`
+-- column at all), a second run (the column was dropped by the first), and the
+-- actual migration. An unguarded reference raises "column url does not exist"
+-- in two of the three.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'videos' and column_name = 'url'
+  ) then
+    update public.videos
+       set storage_path = regexp_replace(url, '^.*/object/(public|sign)/course-videos/', '')
+     where storage_path is null
+       and url is not null
+       -- Only when the pattern actually matched. regexp_replace returns its
+       -- input UNCHANGED on no match, which would turn a bare filename into a
+       -- slash-free storage_path — and before the allowlist landed in
+       -- 04_storage.sql that meant "world-readable".
+       and url ~ '/object/(public|sign)/course-videos/';
 
--- Fails loudly if a video row has neither a path nor a recoverable URL,
--- which is the right outcome: that row points at nothing.
+    raise notice 'Converged videos.url -> videos.storage_path.';
+  end if;
+end;
+$$;
+
+-- Fails loudly if a video row has neither a path nor a recoverable URL, which
+-- is the right outcome: that row points at nothing and every read of it would
+-- be denied anyway. `set not null` is a no-op when it is already set, so this
+-- is safe to re-run.
 alter table public.videos alter column storage_path set not null;
 alter table public.videos drop column if exists url;
 
@@ -402,7 +430,13 @@ create index if not exists videos_category_chapter_idx on public.videos (categor
 create index if not exists videos_uploaded_by_idx      on public.videos (uploaded_by);
 -- 04_storage.sql's policies look an object name up in this table on every
 -- read, so this index is load-bearing, not housekeeping.
-create unique index if not exists videos_storage_path_key on public.videos (storage_path);
+--
+-- Deliberately NOT unique. Two rows pointing at the same object is odd but
+-- harmless — the policy uses `exists`, which does not care — and a UNIQUE
+-- index here would abort the whole rebuild on a project where an admin
+-- happened to file one upload under two titles. Failing a reset over
+-- something the policy tolerates is the wrong trade.
+create index if not exists videos_storage_path_idx on public.videos (storage_path);
 
 -- ------------------------------------------------------------
 -- 8. Marketing content — carousel, gallery, testimonials
@@ -568,8 +602,29 @@ create table if not exists public.payments (
 
 -- Convergence: the columns were Razorpay-specific by name. The stub is
 -- provider-agnostic now — nothing in the app names a payment provider.
-alter table public.payments rename column razorpay_order_id   to provider_order_id;
-alter table public.payments rename column razorpay_payment_id to provider_payment_id;
+--
+-- ALTER TABLE ... RENAME COLUMN has no IF EXISTS, so this has to be guarded or
+-- it raises on a fresh project (where CREATE TABLE above already made the new
+-- names) and on every re-run.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'payments'
+       and column_name = 'razorpay_order_id'
+  ) then
+    alter table public.payments rename column razorpay_order_id to provider_order_id;
+  end if;
+
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'public' and table_name = 'payments'
+       and column_name = 'razorpay_payment_id'
+  ) then
+    alter table public.payments rename column razorpay_payment_id to provider_payment_id;
+  end if;
+end;
+$$;
 
 -- audit DB-01. This shipped as ON DELETE CASCADE, so deleting an auth user
 -- destroyed their entire payment history — the opposite of the RESTRICT rule

@@ -71,10 +71,29 @@ $$;
 -- metering inside random_puzzles_for_user). Leaving the old triggers in
 -- place would double-check registrations and would re-impose the lockless
 -- puzzle cap the baseline replaced.
-drop trigger if exists enforce_tournament_registration_trg on public.tournament_registrations;
-drop trigger if exists enforce_workshop_registration_trg   on public.workshop_registrations;
-drop trigger if exists enforce_puzzle_quota_trg            on public.puzzle_attempts;
-drop trigger if exists on_quest_completed                  on public.quest_progress;
+-- Guarded on the TABLE existing, not just the trigger: DROP TRIGGER IF EXISTS
+-- covers the trigger and raises "relation does not exist" if the table it
+-- names is gone. On a project that never had one of these, the bare form
+-- would stop the teardown dead.
+do $$
+declare
+  t record;
+begin
+  for t in
+    select * from (values
+      ('tournament_registrations', 'enforce_tournament_registration_trg'),
+      ('workshop_registrations',   'enforce_workshop_registration_trg'),
+      ('puzzle_attempts',          'enforce_puzzle_quota_trg'),
+      ('quest_progress',           'on_quest_completed')
+    ) as v(tbl, trg)
+  loop
+    if to_regclass('public.' || t.tbl) is not null then
+      execute format('drop trigger if exists %I on public.%I', t.trg, t.tbl);
+    end if;
+  end loop;
+  raise notice 'Teardown: old enforcement triggers removed.';
+end;
+$$;
 
 drop function if exists public.enforce_tournament_registration() cascade;
 drop function if exists public.enforce_workshop_registration()   cascade;

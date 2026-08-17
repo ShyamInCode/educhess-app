@@ -225,7 +225,9 @@ declare
   v_public boolean;
   v_open   text;
 begin
-  select public into v_public from storage.buckets where id = 'course-videos';
+  -- Aliased: `public` is also a schema name, and an unqualified reference in
+  -- a plpgsql SELECT INTO is asking for an ambiguity error.
+  select b.public into v_public from storage.buckets b where b.id = 'course-videos';
   if v_public is null then
     raise exception 'STORAGE SELF-CHECK FAILED: the course-videos bucket does not exist.';
   end if;
