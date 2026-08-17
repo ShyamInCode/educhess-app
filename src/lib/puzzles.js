@@ -87,13 +87,38 @@ export function normalizeLichessPuzzle(row) {
   };
 }
 
-/** Fetch a shuffled batch for a category + difficulty. */
-export async function fetchPuzzles(categoryKey, difficultyKey, limit = 20) {
+/**
+ * How many puzzles to ask for at a time.
+ *
+ * Deliberately small, and it is not a display choice. The allowance is
+ * metered at DELIVERY now (supabase/02_functions.sql), so every puzzle handed
+ * out is spent whether or not it is solved. A 20-puzzle batch would charge a
+ * Free account its whole day the moment it opened the page, and switching
+ * category after two puzzles would find nothing left. Five keeps the waste
+ * bounded to at most four, and matches the Free tier exactly — one batch is
+ * one day.
+ */
+export const BATCH_SIZE = 5;
+
+/**
+ * Fetch a shuffled batch for a category + difficulty.
+ *
+ * Returns `{ puzzles, quota }`, where quota is
+ * `{ tier, daily_limit, used_today, remaining }` as the server counted it
+ * AFTER this batch — a null limit (and null remaining) means unlimited.
+ *
+ * The quota comes back in the same response on purpose. The count is the
+ * server's, not a number the UI decrements: the client used to keep its own
+ * tally derived from attempts it chose to log, which is what made the
+ * allowance unenforceable (audit ENT-01).
+ *
+ * random_puzzles_for_user, not random_puzzles: the wrapper meters the batch,
+ * clamps it to what is left, and direct EXECUTE on the sampler is revoked
+ * from every client role.
+ */
+export async function fetchPuzzles(categoryKey, difficultyKey, limit = BATCH_SIZE) {
   const band = DIFFICULTIES.find((d) => d.key === difficultyKey) || DIFFICULTIES[1];
 
-  // random_puzzles_for_user, not random_puzzles: the wrapper checks the
-  // caller's daily allowance before handing out a batch, and direct EXECUTE
-  // on the sampling function is revoked (see migration_phase8_tiers.sql).
   const { data, error } = await supabase.rpc("random_puzzles_for_user", {
     p_themes: [categoryKey],
     p_min_rating: band.min,
@@ -103,5 +128,13 @@ export async function fetchPuzzles(categoryKey, difficultyKey, limit = 20) {
 
   if (error) throw error;
 
-  return (data || []).map(normalizeLichessPuzzle).filter(Boolean);
+  return {
+    puzzles: (data?.puzzles || []).map(normalizeLichessPuzzle).filter(Boolean),
+    quota: {
+      tier: data?.tier ?? "free",
+      daily_limit: data?.daily_limit ?? null,
+      used_today: data?.used_today ?? 0,
+      remaining: data?.remaining ?? null,
+    },
+  };
 }

@@ -35,6 +35,10 @@ drop function if exists public.enforce_tournament_registration() cascade;
 drop function if exists public.enforce_workshop_registration() cascade;
 drop function if exists public.random_puzzles_for_user(text[], integer, integer, integer);
 
+-- Returns json now, not bigint: the outcome has to COMMIT rather than abort,
+-- so business results are returned instead of raised. See section 7.
+drop function if exists public.register_for_event(text, bigint, text, text, text, text, text, text);
+
 -- ------------------------------------------------------------
 -- 1. is_admin() — the single admin gate
 -- ------------------------------------------------------------
@@ -185,6 +189,16 @@ begin
   return new;
 end;
 $$;
+
+-- Postgres grants EXECUTE to PUBLIC by default on every new function, and
+-- this is the one SECURITY DEFINER function here with no caller check of its
+-- own — it does not need one, because a trigger function can only be invoked
+-- as a trigger. Revoked anyway so the invariant this file states at the top
+-- is true by construction rather than by the accident of the return type: if
+-- anyone ever refactors this into a directly-callable repair helper, it would
+-- otherwise become a PUBLIC-executable writer of public.profiles that RLS
+-- does not apply to.
+revoke all on function public.handle_new_user() from public, anon, authenticated;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -349,6 +363,17 @@ begin
     from public.puzzle_allowance a
    where a.user_id = v_uid and a.usage_date = v_day
    for update;
+
+  -- No path reaches this today — the INSERT above waits out any concurrent
+  -- speculative insert, so the row is always there. It is guarded anyway
+  -- because of which way the code falls over if it ever isn't: SELECT INTO
+  -- leaves v_used NULL rather than raising, `v_used >= v_limit` is then NULL
+  -- rather than TRUE, the gate passes, v_room is NULL, and random_puzzles()
+  -- coalesces a NULL limit to 20. A missing meter would hand a free account
+  -- four times its allowance. Fail closed instead.
+  if v_used is null then
+    raise exception 'PUZZLE_ALLOWANCE_UNAVAILABLE: could not read today''s allowance';
+  end if;
 
   if v_limit is null then
     v_room := least(greatest(coalesce(p_limit, 20), 1), 100);
@@ -516,13 +541,41 @@ grant execute on function public.workshop_spots_left(bigint)   to anon, authenti
 --   * ALREADY_REGISTERED is raised ahead of the closed and full checks
 --     (audit FL-03). A parent who resubmits was previously told "this one is
 --     full", which is both confusing and wrong about what to do next.
---   * The rate limit (audit SEC-03) is checked before any of it. Registration
---     is open to anonymous callers by design — a parent should not need an
---     account to book a seat — which also meant a scripted loop with the
---     public anon key could book out a paid event under invented names, or
---     flood a no-capacity event with junk records of children.
+--   * The rate limit (audit SEC-03) is checked before any of it, and the
+--     attempt is RECORDED before the decision. Registration is open to
+--     anonymous callers by design — a parent should not need an account to
+--     book a seat — which also meant a scripted loop with the public anon key
+--     could book out a paid event under invented names, or flood a
+--     no-capacity event with junk records of children.
 --
--- Returns the new registration id.
+-- WHY THIS RETURNS JSON INSTEAD OF RAISING.
+-- The obvious shape is `raise exception 'ALREADY_REGISTERED'`, and it is
+-- wrong here. A raised exception aborts the transaction, which rolls back the
+-- rate-limit row along with everything else — so an attempt that FAILS costs
+-- nothing and never accrues against the throttle. That turns the friendly
+-- duplicate check into a free, unlimited oracle: ask "is child X registered
+-- for event Y under parent Z's email", read the answer off the error, repeat
+-- forever. The tuple it discloses is exactly the one the RLS policies on the
+-- registration tables exist to keep private.
+--
+-- Returning a status commits the attempt record, so probing is throttled like
+-- everything else. `REGISTRATION_CLOSED` also deliberately covers both "no
+-- such event" and "that event is a draft" — two distinct messages would let
+-- anyone enumerate unpublished events by walking the id.
+--
+-- Returns: { status, registration_id }, where status is one of
+--   OK · ALREADY_REGISTERED · REGISTRATION_CLOSED · EVENT_FULL
+--   · RATE_LIMITED · INVALID_INPUT
+--
+-- RESIDUAL, because the mechanism has a real limit: the throttle is keyed on
+-- values the caller supplies, so an attacker with an endless supply of fresh
+-- email addresses and patience can still fill an event a burst at a time. The
+-- per-event ceiling below bounds the RATE, not the total. Genuinely closing
+-- it needs something the caller cannot invent — requiring sign-in to
+-- register, or a CAPTCHA token — and both are product decisions rather than
+-- SQL. What the baseline adds meanwhile: admins can now delete registrations
+-- (03_rls.sql §4), so a burst is cleanable from the panel instead of the SQL
+-- Editor.
 create or replace function public.register_for_event(
   p_kind          text,
   p_event_id      bigint,
@@ -533,7 +586,7 @@ create or replace function public.register_for_event(
   p_parent_phone  text,
   p_notes         text default null
 )
-returns bigint
+returns json
 language plpgsql
 volatile
 security definer
@@ -554,33 +607,65 @@ declare
   v_recent  integer;
   v_id      bigint;
 begin
+  -- The only raise in this function. A bad `kind` is a programming mistake in
+  -- the caller, not an outcome a parent can produce.
   if p_kind not in ('workshop', 'tournament') then
     raise exception 'INVALID_KIND: %', p_kind;
   end if;
   if v_email = '' or v_child = '' or v_parent = '' then
-    raise exception 'INVALID_INPUT: child name, parent name and parent email are all required';
+    return json_build_object('status', 'INVALID_INPUT', 'registration_id', null);
   end if;
 
   -- --- audit SEC-03: throttle before doing any work ---
+  -- Three scopes. The first two are what the caller supplies and can vary at
+  -- will; the third is the event id, which is the one value an attacker
+  -- targeting a specific event cannot change. It is set well above any real
+  -- opening-day rush so it never blocks a genuine one.
   select count(*) into v_recent
     from public.registration_rate_limit
-   where scope = 'email'
-     and key = v_email
+   where scope = 'email' and key = v_email
      and created_at > now() - interval '1 hour';
   if v_recent >= 5 then
-    raise exception 'RATE_LIMITED: too many registrations from this email address in the last hour';
+    return json_build_object('status', 'RATE_LIMITED', 'registration_id', null);
   end if;
 
   if v_uid is not null then
     select count(*) into v_recent
       from public.registration_rate_limit
-     where scope = 'user'
-       and key = v_uid::text
+     where scope = 'user' and key = v_uid::text
        and created_at > now() - interval '1 hour';
     if v_recent >= 10 then
-      raise exception 'RATE_LIMITED: too many registrations from this account in the last hour';
+      return json_build_object('status', 'RATE_LIMITED', 'registration_id', null);
     end if;
   end if;
+
+  select count(*) into v_recent
+    from public.registration_rate_limit
+   where scope = 'event' and key = p_kind || ':' || p_event_id::text
+     and created_at > now() - interval '1 hour';
+  if v_recent >= 30 then
+    return json_build_object('status', 'RATE_LIMITED', 'registration_id', null);
+  end if;
+
+  -- Record the ATTEMPT, not the success. This has to happen before the
+  -- decision below, and it has to commit — which is why nothing after this
+  -- point raises. An attempt that ends in ALREADY_REGISTERED or EVENT_FULL
+  -- still costs the caller throttle budget, so probing is bounded.
+  insert into public.registration_rate_limit (scope, key) values ('email', v_email);
+  insert into public.registration_rate_limit (scope, key)
+    values ('event', p_kind || ':' || p_event_id::text);
+  if v_uid is not null then
+    insert into public.registration_rate_limit (scope, key) values ('user', v_uid::text);
+  end if;
+
+  -- Expire this caller's own stale rows, using the (scope, key, created_at)
+  -- index. A bare `created_at <` sweep cannot use that index and would seq
+  -- scan the whole table on every registration — while holding the event row
+  -- lock taken below, which is precisely how a flood would turn into a
+  -- site-wide stall.
+  delete from public.registration_rate_limit
+   where scope = 'email' and key = v_email
+     and created_at < now() - interval '1 day';
 
   -- --- lock the event, then decide ---
   if p_kind = 'workshop' then
@@ -597,35 +682,35 @@ begin
      for update;
   end if;
 
+  -- Same status for "no such event" and "that event is a draft". Two
+  -- different answers here would let anyone walk the id space and enumerate
+  -- every unpublished workshop and tournament.
   if not found then
-    raise exception 'REGISTRATION_CLOSED: that event no longer exists';
+    return json_build_object('status', 'REGISTRATION_CLOSED', 'registration_id', null);
   end if;
 
   -- "You are already in" first: it is the most useful thing to tell someone
   -- who resubmits, and it is true regardless of whether the event is now
-  -- full or closed.
+  -- full or closed (audit FL-03).
   if p_kind = 'workshop' then
-    if exists (
-      select 1 from public.workshop_registrations r
-       where r.workshop_id = p_event_id
-         and lower(r.parent_email) = v_email
-         and lower(r.child_name) = lower(v_child)
-    ) then
-      raise exception 'ALREADY_REGISTERED: this child is already registered for this workshop';
-    end if;
+    select 1 into v_taken from public.workshop_registrations r
+     where r.workshop_id = p_event_id
+       and lower(r.parent_email) = v_email
+       and lower(r.child_name) = lower(v_child)
+     limit 1;
   else
-    if exists (
-      select 1 from public.tournament_registrations r
-       where r.tournament_id = p_event_id
-         and lower(r.parent_email) = v_email
-         and lower(r.child_name) = lower(v_child)
-    ) then
-      raise exception 'ALREADY_REGISTERED: this child is already registered for this tournament';
-    end if;
+    select 1 into v_taken from public.tournament_registrations r
+     where r.tournament_id = p_event_id
+       and lower(r.parent_email) = v_email
+       and lower(r.child_name) = lower(v_child)
+     limit 1;
+  end if;
+  if found then
+    return json_build_object('status', 'ALREADY_REGISTERED', 'registration_id', null);
   end if;
 
   if not v_pub or v_closes <= now() then
-    raise exception 'REGISTRATION_CLOSED: registration for this one has closed';
+    return json_build_object('status', 'REGISTRATION_CLOSED', 'registration_id', null);
   end if;
 
   if v_cap is not null then
@@ -635,7 +720,7 @@ begin
       select count(*) into v_taken from public.tournament_registrations where tournament_id = p_event_id;
     end if;
     if v_taken >= v_cap then
-      raise exception 'EVENT_FULL: this one is full';
+      return json_build_object('status', 'EVENT_FULL', 'registration_id', null);
     end if;
   end if;
 
@@ -653,16 +738,7 @@ begin
     returning id into v_id;
   end if;
 
-  insert into public.registration_rate_limit (scope, key) values ('email', v_email);
-  if v_uid is not null then
-    insert into public.registration_rate_limit (scope, key) values ('user', v_uid::text);
-  end if;
-
-  -- Keep the throttle table from growing without bound. Nothing reads a row
-  -- older than an hour; a day of slack costs nothing and keeps this cheap.
-  delete from public.registration_rate_limit where created_at < now() - interval '1 day';
-
-  return v_id;
+  return json_build_object('status', 'OK', 'registration_id', v_id);
 end;
 $$;
 
@@ -888,7 +964,61 @@ grant execute on function public.admin_set_tier(uuid, text, timestamptz) to auth
 grant execute on function public.event_registration_counts(text)         to authenticated;
 
 -- ============================================================
--- End of 02. Seventeen functions, one trigger. Every SECURITY DEFINER one
+-- 10. SELF-CHECK — the invariants this file claims at the top
+-- ============================================================
+-- Asserting them rather than asserting them in a comment. A header that
+-- promises "every SECURITY DEFINER function pins search_path" is worth
+-- nothing the first time someone adds one that doesn't.
+do $$
+declare
+  bad text;
+begin
+  select string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')', ', ')
+    into bad
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prosecdef
+     and (p.proconfig is null
+          or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'));
+
+  if bad is not null then
+    raise exception 'FUNCTION SELF-CHECK FAILED: SECURITY DEFINER without a pinned search_path: %', bad;
+  end if;
+  raise notice 'Function self-check (a): every SECURITY DEFINER function pins search_path.';
+end;
+$$;
+
+do $$
+declare
+  bad text;
+begin
+  -- The sampler must not be reachable by a client under any circumstances:
+  -- it is the un-metered path to the puzzle library.
+  if has_function_privilege('anon', 'public.random_puzzles(text[], integer, integer, integer)', 'execute')
+     or has_function_privilege('authenticated', 'public.random_puzzles(text[], integer, integer, integer)', 'execute') then
+    raise exception 'FUNCTION SELF-CHECK FAILED: random_puzzles() is executable by a client role — the puzzle allowance can be walked around entirely.';
+  end if;
+
+  select string_agg(fn, ', ') into bad from (
+    select 'record_razorpay_payment' as fn where exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'record_razorpay_payment')
+    union all
+    select 'enforce_puzzle_quota' where exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'public' and p.proname = 'enforce_puzzle_quota')
+  ) s;
+
+  if bad is not null then
+    raise exception 'FUNCTION SELF-CHECK FAILED: functions this baseline replaces still exist: %. Run 00_teardown.sql.', bad;
+  end if;
+  raise notice 'Function self-check (b): the sampler is closed and the replaced functions are gone.';
+end;
+$$;
+
+-- ============================================================
+-- End of 02. Nineteen functions, one trigger. Every SECURITY DEFINER one
 -- pins search_path and checks its own caller; 04_storage.sql's policies are
 -- the only other place tier is consulted.
 -- ============================================================

@@ -93,6 +93,21 @@ revoke update on public.profiles from anon, authenticated;
 grant  update (name, grade, consent_at) on public.profiles to authenticated;
 revoke insert on public.profiles from anon;
 
+-- RESIDUAL, stated rather than left to be discovered (audit PRIV-01):
+-- `consent_at` is in that grant, which means the DPDP parental-consent stamp
+-- is writable by the account it is about. A signed-in student can set it from
+-- the browser console exactly as the ProfileCompletionDialog does, and the
+-- result is indistinguishable in admin_list_members(). Nothing anywhere gates
+-- a read or a write on `consent_at is not null` either.
+--
+-- It is in the grant because the dialog has to be able to write it, and there
+-- is no server to verify a parent any other way. So consent here is a UI
+-- affordance and a record that the box was ticked — not a technical boundary,
+-- and not proof the person ticking it was a parent. Making it one needs
+-- something only a parent holds: a link mailed to the parent's address, or
+-- their own signed-in session. Both are product decisions, and both need the
+-- email path this architecture deliberately gave up.
+
 -- ------------------------------------------------------------
 -- 2. contact_submissions
 -- ------------------------------------------------------------
@@ -161,8 +176,23 @@ create policy "workshops_delete_admin" on public.workshops
 -- check, the duplicate message and the rate limit. A direct INSERT would
 -- walk past all four, so it is refused rather than merely discouraged.
 --
--- No UPDATE and no DELETE either: a registration is a business record for an
--- event a parent booked. Admins manage events, not other people's bookings.
+-- No UPDATE: a registration is a record of what a parent submitted, and
+-- editing someone else's booking is not a thing the academy should be able to
+-- do quietly.
+--
+-- DELETE is admin-only, and it is not the same thing as the cascade that
+-- caused trouble before. That was an EVENT delete taking every registration
+-- with it behind one window.confirm(), which the ON DELETE RESTRICT foreign
+-- key now makes impossible. This is a deliberate, single-row removal, and
+-- there are two situations that need it: clearing junk after an abusive
+-- registration burst, and honouring a DPDP erasure request for a child's
+-- record. Without it, both require the SQL Editor.
+create policy "tournament_registrations_delete_admin" on public.tournament_registrations
+  for delete to authenticated using (public.is_admin());
+
+create policy "workshop_registrations_delete_admin" on public.workshop_registrations
+  for delete to authenticated using (public.is_admin());
+
 create policy "tournament_registrations_select_own" on public.tournament_registrations
   for select to authenticated
   using (auth.uid() = user_id);
@@ -316,18 +346,31 @@ create policy "testimonials_delete_admin" on public.testimonials
   for delete to authenticated using (public.is_admin());
 
 -- ------------------------------------------------------------
--- 10. lichess_puzzles
+-- 10. lichess_puzzles — DEFINER-only, and this matters
 -- ------------------------------------------------------------
--- `using (true)`, and this one is genuinely public: it is CC0 data from
--- database.lichess.org. What is metered is DELIVERY through
--- random_puzzles_for_user(), not the existence of the rows — and the client
--- has no way to read them directly, because there is no `.from()` path in
--- the app and the sampling function's EXECUTE is revoked from every client
--- role in 02_functions.sql.
-create policy "lichess_puzzles_select_all" on public.lichess_puzzles
-  for select to anon, authenticated using (true);
+-- No policy, and the privilege revoked outright.
+--
+-- This table carried `using (true)` for its whole life, on the reasoning that
+-- the rows are CC0 data from database.lichess.org so there is nothing to
+-- protect. That reasoning is about the CONTENT and misses the mechanism:
+-- PostgREST serves every table in `public` that a client role can select,
+-- whatever the React app happens to call. So `GET /rest/v1/lichess_puzzles
+-- ?themes=cs.{fork}&limit=1000` returned puzzles to anyone holding the anon
+-- key, in bulk, with no account.
+--
+-- That is the whole of ENT-01 walked around. The delivery meter, the row
+-- lock, the per-tier clamp — all of it only applies to callers who go
+-- through random_puzzles_for_user(), and nothing obliged them to. Revoking
+-- EXECUTE on random_puzzles() closed the side door while the front door
+-- stood open.
+--
+-- Delivery still works: random_puzzles() is called from inside
+-- random_puzzles_for_user(), which is SECURITY DEFINER owned by the table
+-- owner. At that point current_user IS the owner, who is exempt from RLS and
+-- holds SELECT regardless of what is revoked from anon and authenticated.
+revoke all on public.lichess_puzzles from anon, authenticated;
 
--- No client write policy at all: the import runs with the service_role key,
+-- No client write policy either: the import runs with the service_role key,
 -- which bypasses RLS.
 
 -- ============================================================
@@ -361,7 +404,8 @@ $$;
 do $$
 declare
   expected_definer_only constant text[] :=
-    array['event_meeting_links', 'registration_rate_limit', 'puzzle_allowance'];
+    array['event_meeting_links', 'registration_rate_limit', 'puzzle_allowance',
+          'lichess_puzzles'];
   bad text;
 begin
   select string_agg(c.relname, ', ' order by c.relname)
@@ -378,6 +422,31 @@ begin
     raise exception 'RLS SELF-CHECK FAILED: these tables have RLS on but no policy, and are not on the DEFINER-only list: %', bad;
   end if;
   raise notice 'RLS self-check (b): the only policy-free tables are the three DEFINER-only ones.';
+end;
+$$;
+
+-- (b2) The DEFINER-only tables are genuinely unreachable by a client role.
+--      RLS-with-no-policy already denies them, but PostgREST decides what to
+--      expose from the GRANT, and a policy is easier to add by accident than
+--      a privilege. Belt and braces, asserted rather than assumed.
+do $$
+declare
+  t   text;
+  bad text := '';
+begin
+  foreach t in array array['event_meeting_links', 'registration_rate_limit',
+                           'puzzle_allowance', 'lichess_puzzles']
+  loop
+    if has_table_privilege('anon', 'public.' || t, 'select')
+       or has_table_privilege('authenticated', 'public.' || t, 'select') then
+      bad := bad || t || ' ';
+    end if;
+  end loop;
+
+  if bad <> '' then
+    raise exception 'RLS SELF-CHECK FAILED: anon/authenticated still hold SELECT on DEFINER-only tables: %', bad;
+  end if;
+  raise notice 'RLS self-check (b2): the DEFINER-only tables are not readable by any client role.';
 end;
 $$;
 

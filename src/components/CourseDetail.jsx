@@ -2,19 +2,25 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { COURSE_TITLES, COURSE_VIDEOS } from "../data/mockData";
-import { getPublicVideoUrl } from "../lib/media";
+import { useSignedVideo } from "../lib/useSignedVideo";
 import { useAutoplaySound } from "../lib/useAutoplaySound";
 import { useAuth } from "../lib/AuthContext";
 import { tierAllows, tierName } from "../lib/tiers";
 
 /*
-  NOTE on what the padlock is and is not.
+  NOTE on what the padlock is, and what it is not.
 
-  Chapter locks are a UI boundary. `videos` is world-readable and the
-  course-videos bucket is public, so anyone reading the network tab can still
-  fetch a locked video's CDN URL. Making this a real boundary needs signed
-  URLs — the open item in docs/SYSTEM-OVERVIEW.md §9. Do not describe this as
-  DRM to anyone; it is a paywall in the sense that a newspaper honesty box is.
+  The padlock is now cosmetic in the useful direction: it tells a visitor
+  what they would get, and the SERVER decides whether they get it. The
+  course-videos bucket is private and the SELECT policy on storage.objects
+  (supabase/04_storage.sql) compares the caller's tier against the chapter's
+  min_tier before Supabase will sign a URL at all. Removing the padlock in
+  devtools and clicking a locked lesson gets you a refusal, not a video.
+
+  What the padlock is NOT is DRM. Someone who legitimately has access can
+  still save the file — the signed URL is a real, playable link for its
+  lifetime. The boundary is "may this person watch it", not "can this person
+  keep it".
 */
 
 export default function CourseDetail({ subjectKey, onBack }) {
@@ -23,11 +29,15 @@ export default function CourseDetail({ subjectKey, onBack }) {
   const [chapters, setChapters] = useState([]);
   const [videosByChapter, setVideosByChapter] = useState({});
   const [loading, setLoading] = useState(true);
-  const [activeVideo, setActiveVideo] = useState(null); // { title, url } | null
+  const [activeVideo, setActiveVideo] = useState(null); // { title, path } | null
   const videoRef = useRef(null);
 
   const title = COURSE_TITLES[subjectKey];
-  const defaultVideoUrl = getPublicVideoUrl(COURSE_VIDEOS[subjectKey]);
+  // The course introduction sits at the root of the bucket, where the storage
+  // policy lets anyone read it. Falling back to it means a logged-out visitor
+  // always has something playing rather than an empty frame.
+  const playingPath = activeVideo ? activeVideo.path : COURSE_VIDEOS[subjectKey];
+  const player = useSignedVideo(playingPath);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,10 +80,11 @@ export default function CourseDetail({ subjectKey, onBack }) {
   }, [subjectKey]);
 
   // Autoplay with sound whenever the video source changes — see
-  // src/lib/useAutoplaySound.js for the browser-policy fallback.
-  useAutoplaySound(videoRef, [activeVideo]);
+  // src/lib/useAutoplaySound.js for the browser-policy fallback. Keyed on the
+  // signed URL rather than on `activeVideo`, because the element only has a
+  // src once the URL has been minted.
+  useAutoplaySound(videoRef, [player.url]);
 
-  const playingUrl = activeVideo ? activeVideo.url : defaultVideoUrl;
   const playingTitle = activeVideo ? activeVideo.title : "Course Introduction";
 
   return (
@@ -141,9 +152,9 @@ export default function CourseDetail({ subjectKey, onBack }) {
                         {chapterVideos.map((v) => (
                           <li key={v.id}>
                             <button
-                              onClick={() => setActiveVideo({ title: v.title, url: v.url })}
+                              onClick={() => setActiveVideo({ title: v.title, path: v.storage_path })}
                               className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
-                                activeVideo?.url === v.url
+                                activeVideo?.path === v.storage_path
                                   ? "bg-[#0f172a] text-[#d4af37]"
                                   : "text-[#e7ecf5] hover:bg-[#0f172a] hover:text-[#34d399]"
                               }`}
@@ -170,18 +181,58 @@ export default function CourseDetail({ subjectKey, onBack }) {
               {/* No object-cover: <video> letterboxes by default, so a 4:3 or
                   vertical lesson recording is shown whole instead of having its
                   sides (and the native control bar) clipped. */}
-              <video
-                key={playingUrl}
-                ref={videoRef}
-                className="w-full h-full"
-                src={playingUrl}
-                autoPlay
-                loop
-                playsInline
-                controls
-              >
-                Your browser does not support the video tag.
-              </video>
+              {player.url ? (
+                <video
+                  key={player.url}
+                  ref={videoRef}
+                  className="w-full h-full"
+                  src={player.url}
+                  autoPlay
+                  loop
+                  playsInline
+                  controls
+                  // The URL has a deadline. If it lapsed while this tab sat
+                  // open, the element reports a media error — mint a new one
+                  // rather than leaving a dead player on screen.
+                  onError={player.refresh}
+                >
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <div className="w-full h-full grid place-items-center px-6 text-center">
+                  {player.status === "loading" && (
+                    <p className="text-sm text-[#93a1b8] font-mono">Loading…</p>
+                  )}
+                  {/* "The server said no" and "it broke" are different
+                      sentences and lead to different places. Telling a paying
+                      Academy member to upgrade because a request failed would
+                      be worse than saying nothing. */}
+                  {player.status === "denied" && (
+                    <div>
+                      <p className="text-sm text-[#93a1b8]">
+                        This lesson is part of a paid chapter.
+                      </p>
+                      <Link
+                        to="/upgrade"
+                        className="inline-block mt-3 px-4 py-2 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
+                      >
+                        See the plans
+                      </Link>
+                    </div>
+                  )}
+                  {player.status === "failed" && (
+                    <div>
+                      <p className="text-sm text-[#f87171]">Couldn't load that video.</p>
+                      <button
+                        onClick={player.refresh}
+                        className="mt-3 text-sm font-mono text-[#34d399] hover:text-[#6ee7b7]"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <p className="text-sm text-[#93a1b8] mt-2 font-mono">{playingTitle}</p>
           </div>

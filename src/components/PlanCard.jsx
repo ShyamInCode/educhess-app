@@ -1,79 +1,51 @@
-import React, { useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
-import AuthModal from "./AuthModal";
 import { useAuth } from "../lib/AuthContext";
 import { tierRank } from "../lib/tiers";
-import { paymentsEnabled, startUpgrade, waitForTier } from "../lib/razorpay";
 
 /* ============================================================
-   One pricing card, and the checkout behind it.
+   One pricing card.
    ------------------------------------------------------------
    Used by /upgrade and by the Programs & Pricing block on /about. They
    are the same offer, so they are the same component: a card on the
    About page that said "enquire" while /upgrade took payment was two
    different answers to the same question.
+
+   PAYMENTS ARE STUBBED. There is no checkout: the plans are described here
+   and bought by talking to the academy, which is how the in-person coaching
+   has always been sold anyway. The `payments` table still exists with its
+   columns and its RESTRICT foreign key, so a receipt has somewhere to go the
+   day this changes — but nothing writes to it and no code processes money.
+
+   This is the same thing a visitor saw before, because the publishable key
+   shipped blank: the buttons already fell back to "Talk to us". What has gone
+   is the branch behind them — a client bundle that loaded Razorpay Checkout,
+   an Edge Function that created orders, and a second one that took the
+   signed webhook. Turning payments back on means either Razorpay Payment
+   Links (zero code, admin marks the member up by hand) or that Edge Function
+   pair. See docs/SYSTEM-OVERVIEW.md.
    ============================================================ */
 
 /**
- * Checkout state for a page that shows plan cards.
+ * Plan-card state for a page that shows them.
  *
- * Returns `authModal` for the caller to render — a signed-out visitor who
- * clicks Get Pro needs an account before there is anyone to sell to.
+ * Kept as a hook, and kept returning the same shape, so /upgrade and /about
+ * still cannot drift apart. It has nothing left to do asynchronously.
  */
 export function usePlanCheckout() {
-  const { user, profile, tier, refreshProfile } = useAuth();
-  const [busyTier, setBusyTier] = useState(null);
-  const [status, setStatus] = useState(null); // { tier, type, msg }
-  const [authOpen, setAuthOpen] = useState(false);
-
-  async function buy(target) {
-    if (!user) {
-      setAuthOpen(true);
-      return;
-    }
-    setStatus(null);
-    setBusyTier(target.key);
-    try {
-      const result = await startUpgrade({ tier: target.key, profile, user });
-      if (result.status === "dismissed") {
-        setBusyTier(null);
-        return;
-      }
-      // Paid, as far as the browser knows. The membership itself is switched
-      // on by the signed webhook, so ask the server rather than celebrating.
-      setStatus({ tier: target.key, type: "ok", msg: "Payment received. Activating your plan…" });
-      const fresh = await waitForTier({ refreshProfile, expectedTier: target.key });
-      setBusyTier(null);
-      setStatus(
-        fresh
-          ? { tier: target.key, type: "ok", msg: `${target.name} is active. Enjoy.` }
-          : {
-              tier: target.key,
-              type: "error",
-              msg: "Your payment went through but the plan hasn't switched over yet. Refresh in a minute — if it still hasn't, contact us and we'll sort it out.",
-            }
-      );
-    } catch (e) {
-      setBusyTier(null);
-      setStatus({ tier: target.key, type: "error", msg: e.message || "Something went wrong." });
-    }
-  }
-
+  const { user, tier } = useAuth();
   return {
-    buy,
-    busyTier,
-    statusFor: (key) => (status?.tier === key ? status : null),
     currentTier: tier,
     signedIn: !!user,
-    authModal: <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} />,
+    // The pages render this; there is no longer a flow that opens it.
+    authModal: null,
   };
 }
 
 export default function PlanCard({ tier, checkout }) {
-  const { buy, busyTier, statusFor, currentTier, signedIn } = checkout;
+  const { currentTier, signedIn } = checkout;
   const isCurrent = signedIn && currentTier === tier.key;
   const isBelow = signedIn && tierRank(tier.key) < tierRank(currentTier);
-  const status = statusFor(tier.key);
 
   return (
     <div
@@ -114,31 +86,17 @@ export default function PlanCard({ tier, checkout }) {
           <p className="text-sm text-[#93a1b8] text-center py-2.5">Included in your plan.</p>
         ) : tier.amountPaise === 0 ? (
           <p className="text-sm text-[#93a1b8] text-center py-2.5">Free with any account.</p>
-        ) : paymentsEnabled ? (
-          <button
-            type="button"
-            onClick={() => buy(tier)}
-            disabled={!!busyTier}
-            aria-label={`Get the ${tier.name} plan for ${tier.price}${tier.priceNote}`}
-            className="block w-full text-center py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors disabled:opacity-60"
-          >
-            {busyTier === tier.key ? "Opening payment…" : `Get ${tier.name} — ${tier.price}${tier.priceNote}`}
-          </button>
         ) : (
-          /* No publishable key configured, so there is no honest "pay now"
-             button to show. Fall back to the thing that does work. */
+          /* Payments are stubbed, so there is no honest "pay now" button to
+             show. This is the fallback the site already used whenever the
+             publishable key was blank, which was always. */
           <Link
             to="/contact"
+            aria-label={`Enquire about the ${tier.name} plan`}
             className="block w-full text-center py-2.5 rounded-lg bg-[#d4af37] text-[#0f172a] font-semibold text-sm hover:bg-[#f0d98c] transition-colors"
           >
             Talk to us about {tier.name}
           </Link>
-        )}
-
-        {status && (
-          <p className={`text-sm mt-3 ${status.type === "error" ? "text-[#f87171]" : "text-[#34d399]"}`}>
-            {status.msg}
-          </p>
         )}
       </div>
     </div>

@@ -3,27 +3,40 @@ import { supabase } from "./supabaseClient";
 /* ============================================================
    Puzzle progress and the daily allowance.
    ------------------------------------------------------------
-   Puzzles are now behind sign-in, and the allowance is a property of the
+   Puzzles are behind sign-in, and the allowance is a property of the
    account's tier rather than of the browser:
 
      free     5 a day
      pro      50 a day
      academy  unlimited
 
-   The earlier version counted anonymous puzzles in localStorage. That is
-   gone: it was a nudge that anyone could clear, and there is nothing to
-   nudge now — you cannot reach a puzzle without an account.
+   THE ALLOWANCE IS NOW A REAL BOUNDARY, and it is worth being precise about
+   what changed, because the old comment here said the opposite.
 
-   The numbers are NOT decided here. tier_daily_puzzles() decides them,
-   enforce_puzzle_quota refuses attempts past the limit, and
-   random_puzzles_for_user() refuses a batch once the day's attempts are used.
+   It used to be counted from `puzzle_attempts` — rows this file writes,
+   fire-and-forget. A client that simply never logged an attempt was never
+   counted, so the tier difference could not actually be delivered (audit
+   ENT-01). It was accepted as a signup nudge on the grounds that Lichess
+   puzzles are free public data; that reasoning holds for the FREE tier and
+   does not hold for a thing Pro and Academy are sold on.
 
-   This is a SOFT limit, not a hard boundary (audit finding FE-02). The count
-   is derived from puzzle_attempts, which the client writes below, so a client
-   that never logs an attempt is never counted against the cap. That is an
-   accepted tradeoff: the puzzles are free public Lichess data, so the daily
-   allowance is a signup/upgrade nudge, not protection of a scarce resource.
-   Everything below is either a read of that state or a display of it.
+   Counting now happens on the way OUT, in random_puzzles_for_user()
+   (supabase/02_functions.sql): puzzles are charged to the account when the
+   server hands them over, under a row lock, and every batch is clamped to
+   what is left. A client cannot decline to be counted, because it is not the
+   one counting.
+
+   What follows from that, for anyone editing this file:
+     * `remaining` is a READ. Never decrement it locally — the number the
+       server returned with the batch is the number.
+     * logPuzzleAttempt() is now purely a record of outcomes. It feeds the
+       dashboard's totals and streak. It gates nothing, and a failed write
+       costs the student nothing.
+
+   There is no anonymous path. /puzzles is behind RequireAuth, so the old
+   localStorage nudge for logged-out visitors has nothing to nudge and is
+   gone. The free tier is the top of the funnel now: five a day, with an
+   account.
    ============================================================ */
 
 /** Does this error mean "you have used today's puzzles"? */
@@ -32,12 +45,16 @@ export function isQuotaError(error) {
 }
 
 /**
- * Read the signed-in student's allowance.
+ * Read the signed-in student's allowance WITHOUT spending any of it.
  *
  * Shape: `{ tier, daily_limit, used_today, remaining }`, where a null
  * `daily_limit` (and null `remaining`) means unlimited. Throws so the caller
  * can tell "couldn't read it" apart from "you have none left" — they lead to
  * completely different screens.
+ *
+ * Used by the category picker. The trainer itself does not need this: its
+ * batch response already carries the same four fields, counted after the
+ * batch was handed over.
  */
 export async function fetchPuzzleQuota() {
   const { data, error } = await supabase.rpc("puzzle_quota");
@@ -48,10 +65,13 @@ export async function fetchPuzzleQuota() {
 /**
  * Record a concluded puzzle.
  *
- * Deliberately fire-and-forget. A logging failure — offline, a dropped
- * request, or the quota trigger disagreeing with the client's count by one —
- * must never interrupt the puzzle the child is solving, so nothing here is
- * awaited and every error ends as a console warning.
+ * Deliberately fire-and-forget. A logging failure — offline, or a dropped
+ * request — must never interrupt the puzzle the child is solving, so nothing
+ * here is awaited and every error ends as a console warning.
+ *
+ * Safe to be lossy now in a way it was not before: this write no longer
+ * decides how many puzzles anyone gets. The worst a lost row costs is one
+ * missing tick in the dashboard streak.
  */
 export function logPuzzleAttempt({ userId, puzzleId, solved, category, difficulty }) {
   if (!userId || !puzzleId) return;

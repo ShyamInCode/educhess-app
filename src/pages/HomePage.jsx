@@ -5,7 +5,7 @@ import ChessBenefits from "../components/ChessBenefits";
 import Testimonials from "../components/Testimonials";
 import ContactForm from "../components/ContactForm";
 import { HOMEPAGE_VIDEO_PATH } from "../data/mockData";
-import { getPublicVideoUrl } from "../lib/media";
+import { useSignedVideo } from "../lib/useSignedVideo";
 import { useAutoplaySound } from "../lib/useAutoplaySound";
 
 /*
@@ -18,9 +18,15 @@ import { useAutoplaySound } from "../lib/useAutoplaySound";
 export default function HomePage() {
   const heroVideoRef = useRef(null);
 
+  // The hero clip lives at the root of the private course-videos bucket,
+  // where supabase/04_storage.sql lets anyone read it — it is marketing, not
+  // the paid product. It still needs a signed URL, because the bucket as a
+  // whole is private now.
+  const hero = useSignedVideo(HOMEPAGE_VIDEO_PATH);
+
   // Autoplay with sound where the browser allows it, falling back to muted.
   // See src/lib/useAutoplaySound.js.
-  useAutoplaySound(heroVideoRef, []);
+  useAutoplaySound(heroVideoRef, [hero.url]);
 
   return (
     <div className="w-full max-w-7xl mx-auto px-6 sm:px-10 lg:px-12 py-8 sm:py-10">
@@ -52,17 +58,30 @@ export default function HomePage() {
         {/* Hero video. No object-cover: <video> letterboxes by default, so a
             clip of any aspect ratio is shown whole rather than cropped. */}
         <div className="relative rounded-2xl overflow-hidden border-2 border-[#d4af37]/50 shadow-2xl bg-[#1e293b] aspect-video">
-          <video
-            ref={heroVideoRef}
-            className="w-full h-full"
-            src={getPublicVideoUrl(HOMEPAGE_VIDEO_PATH)}
-            autoPlay
-            loop
-            playsInline
-            controls
-          >
-            Your browser does not support the video tag.
-          </video>
+          {hero.url ? (
+            <video
+              key={hero.url}
+              ref={heroVideoRef}
+              className="w-full h-full"
+              src={hero.url}
+              autoPlay
+              loop
+              playsInline
+              controls
+              // A signed URL that expired while the tab sat open reads as a
+              // media error. Ask for a fresh one rather than showing a
+              // broken player.
+              onError={hero.refresh}
+            >
+              Your browser does not support the video tag.
+            </video>
+          ) : (
+            <div className="w-full h-full grid place-items-center">
+              <p className="text-sm text-[#93a1b8] font-mono">
+                {hero.status === "loading" ? "Loading…" : "Video unavailable"}
+              </p>
+            </div>
+          )}
         </div>
       </div>
 

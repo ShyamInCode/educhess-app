@@ -6,7 +6,7 @@ import { tryMove } from "../lib/chessMoves";
 import { playSoundForMove } from "../lib/sound";
 import { fetchPuzzles, CATEGORIES } from "../lib/puzzles";
 import { useAuth } from "../lib/AuthContext";
-import { fetchPuzzleQuota, isQuotaError, logPuzzleAttempt } from "../lib/puzzleProgress";
+import { isQuotaError, logPuzzleAttempt } from "../lib/puzzleProgress";
 import { nextTierAbove, tierName } from "../lib/tiers";
 
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
@@ -37,10 +37,11 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
   const [error, setError] = useState("");
   const [solvedCount, setSolvedCount] = useState(0);
   // { tier, daily_limit, used_today, remaining }; daily_limit null = unlimited.
+  // Always straight from the server's batch response — never decremented here.
   const [quota, setQuota] = useState(null);
-  // Set when the SERVER refuses — either the batch request or, in principle,
-  // an attempt insert. Kept separate from the local count so a client that has
-  // drifted still ends up showing the right screen.
+  // Set when the server refuses a batch outright. Separate from `quota`
+  // because it is the one state that must win regardless of what any count
+  // says.
   const [quotaBlocked, setQuotaBlocked] = useState(false);
 
   const gameRef = useRef(null);
@@ -97,65 +98,64 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     [clearTimers]
   );
 
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchBatch() {
+  /**
+   * Ask the server for a batch, and take its word for the allowance.
+   *
+   * The response carries the batch AND the remaining count as the server
+   * counted it, because the allowance is metered when puzzles are HANDED OUT
+   * (supabase/02_functions.sql), not when the client gets round to logging an
+   * attempt. So `setQuota` here is a read, never an estimate — the UI has no
+   * business decrementing a number it does not own.
+   */
+  const loadBatch = useCallback(
+    async ({ isCancelled } = {}) => {
       setLoading(true);
       setError("");
-      let data;
+      let result;
       try {
-        // Server-side random sampling — a fresh batch every mount, so
-        // reopening never "resumes" the same handful of puzzles.
-        data = await fetchPuzzles(category, difficulty, 20);
+        result = await fetchPuzzles(category, difficulty);
       } catch (e) {
-        if (!cancelled) {
-          // "You've used today's puzzles" is not a failure and must not be
-          // reported as one — it gets the upgrade card, not an error message.
-          if (isQuotaError(e)) setQuotaBlocked(true);
-          else setError("Couldn't load puzzles. Please try again in a moment.");
-          setLoading(false);
-        }
-        return;
-      }
-      if (cancelled) return;
-      if (!data.length) {
-        setError("No puzzles available for this category and difficulty yet.");
+        if (isCancelled?.()) return false;
+        // "You've used today's puzzles" is not a failure and must not be
+        // reported as one — it gets the upgrade card, not an error message.
+        if (isQuotaError(e)) setQuotaBlocked(true);
+        else setError("Couldn't load puzzles. Please try again in a moment.");
         setLoading(false);
-        return;
+        return false;
       }
-      const shuffled = shuffle(data);
+      if (isCancelled?.()) return false;
+
+      setQuota(result.quota);
+
+      if (!result.puzzles.length) {
+        // An empty batch with allowance left means the category really is
+        // empty; with none left it means the day is done. Different sentences.
+        if (result.quota.remaining !== null && result.quota.remaining <= 0) setQuotaBlocked(true);
+        else setError("No puzzles available for this category and difficulty yet.");
+        setLoading(false);
+        return false;
+      }
+
+      const shuffled = shuffle(result.puzzles);
       setQueue(shuffled);
       setPos(0);
       missedRef.current = false;
       loadPuzzle(shuffled[0]);
       setLoading(false);
-    }
-    fetchBatch();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category, difficulty]);
+      return true;
+    },
+    [category, difficulty, loadPuzzle]
+  );
 
-  // Today's allowance for this account. Read once per session of the trainer
-  // and then tracked locally as puzzles conclude; the database is still the
-  // one that decides, this is only so the header can count down without a
-  // round trip after every puzzle.
   useEffect(() => {
     let cancelled = false;
-    fetchPuzzleQuota()
-      .then((q) => {
-        if (!cancelled) setQuota(q);
-      })
-      .catch((e) => {
-        // A quota read that fails must not lock a paying member out of the
-        // board. The server refuses anything genuinely over the limit.
-        if (!cancelled) console.warn("[EduChess] couldn't read the puzzle allowance:", e.message);
-      });
+    // A fresh batch every mount and on every category/difficulty change, so
+    // reopening never "resumes" the same handful of puzzles.
+    loadBatch({ isCancelled: () => cancelled });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadBatch]);
 
   function goToNextPuzzle() {
     // A new puzzle, so the "did they need a retry?" flag starts clean. This
@@ -166,16 +166,28 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
     if (nextPos < queue.length) {
       setPos(nextPos);
       loadPuzzle(queue[nextPos]);
-    } else {
-      // Queue exhausted — reshuffle the same set for a truly continuous stream.
-      const reshuffled = shuffle(queue);
-      setQueue(reshuffled);
-      setPos(0);
-      loadPuzzle(reshuffled[0]);
+      return;
     }
+    // Queue exhausted. Ask for more rather than reshuffling what is already
+    // solved — under a real allowance, replaying the same five puzzles all
+    // evening would look like the cap silently not applying. The server
+    // either sends a new batch or refuses, and the refusal is the upgrade
+    // card. Academy accounts are unlimited and simply keep going.
+    loadBatch();
   }
 
-  /** A puzzle has just been finished: record it and count it against today. */
+  /**
+   * A puzzle has just been finished: record it.
+   *
+   * Recording only. It does NOT touch `quota` — the allowance was already
+   * spent when the server handed this puzzle over, and the count in the
+   * header came back with the batch. The old version decremented locally from
+   * attempts the client chose to log, which is precisely how the cap became
+   * unenforceable (audit ENT-01).
+   *
+   * Still fire-and-forget: a logging failure must never interrupt the puzzle
+   * a child is in the middle of, and it can no longer cost them anything.
+   */
   function concludePuzzle() {
     logPuzzleAttempt({
       userId: user?.id,
@@ -185,11 +197,6 @@ export default function PuzzleTrainer({ category, difficulty, onBack }) {
       category,
       difficulty,
     });
-    setQuota((q) =>
-      q && q.daily_limit !== null
-        ? { ...q, used_today: q.used_today + 1, remaining: Math.max(0, (q.remaining ?? 0) - 1) }
-        : q
-    );
   }
 
   function advance() {

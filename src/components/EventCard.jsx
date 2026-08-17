@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import EventRegistrationForm from "./EventRegistrationForm";
 import { supabase } from "../lib/supabaseClient";
+import { useAuth } from "../lib/AuthContext";
 
 /* ============================================================
    One card for a tournament or a workshop.
@@ -31,11 +32,13 @@ function isClosed(event) {
 }
 
 export default function EventCard({ kind, event }) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [registered, setRegistered] = useState(false);
   // null means "no limit set", which is also what we show when the count
   // can't be read — there is simply no number to display either way.
   const [spotsLeft, setSpotsLeft] = useState(null);
+  const [meetingUrl, setMeetingUrl] = useState(null);
   const isOnline = event.format === "online";
   const closed = isClosed(event);
 
@@ -56,6 +59,33 @@ export default function EventCard({ kind, event }) {
   useEffect(() => {
     loadSpots();
   }, [loadSpots]);
+
+  /*
+    The joining link for an online event.
+
+    It is not a column on this row and never reaches the browser as part of
+    the listing: it lives in event_meeting_links, a table with RLS on and no
+    policies at all, reachable only through event_meeting_url()
+    (supabase/02_functions.sql). That function requires a signed-in caller
+    with a registration for this event, or an admin.
+
+    So the three outcomes here are all normal and none is an error worth
+    showing: no account, no registration, or no link set for this event. Only
+    a successful read renders anything.
+  */
+  const loadMeetingUrl = useCallback(async () => {
+    if (!user || !isOnline) return;
+    const { data, error } = await supabase.rpc("event_meeting_url", {
+      p_kind: kind === "workshop" ? "workshop" : "tournament",
+      p_event_id: event.id,
+    });
+    if (error) return; // NOT_REGISTERED / SIGN_IN_REQUIRED — nothing to show
+    setMeetingUrl(data || null);
+  }, [user, isOnline, kind, event.id]);
+
+  useEffect(() => {
+    loadMeetingUrl();
+  }, [loadMeetingUrl]);
 
   const full = spotsLeft === 0;
   const canRegister = !closed && !full;
@@ -121,9 +151,29 @@ export default function EventCard({ kind, event }) {
         </div>
       </div>
 
+      {/* The joining link, for a signed-in registrant of an online event.
+          Rendered outside the `registered` branch on purpose: someone who
+          registered last week and came back should see it too, and the only
+          thing that decides is whether the server hands it over. */}
+      {meetingUrl && (
+        <div className="mt-4 bg-[#0f172a]/60 border border-[#34d399]/40 rounded-lg px-3 py-2">
+          <p className="text-xs font-mono text-[#34d399] uppercase tracking-wide">Joining link</p>
+          <a
+            href={meetingUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm text-[#e7ecf5] hover:text-[#34d399] break-all"
+          >
+            {meetingUrl}
+          </a>
+        </div>
+      )}
+
       {registered && (
         <p className="text-[#34d399] text-sm mt-4 font-mono">
-          You're registered. A confirmation email should arrive shortly; if it doesn't, just get in touch.
+          {isOnline && !meetingUrl
+            ? "You're registered. The joining link appears here once it's set — check back closer to the date."
+            : "You're registered. We'll be in touch on the details you gave us."}
         </p>
       )}
       {!registered && closed && (
@@ -145,6 +195,8 @@ export default function EventCard({ kind, event }) {
             setOpen(false);
             // Keep the visible count honest for anyone else reading the page.
             loadSpots();
+            // And the link becomes readable the moment the registration lands.
+            loadMeetingUrl();
           }}
         />
       )}

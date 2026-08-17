@@ -24,35 +24,39 @@ const INPUT_CLASS =
 const LABEL_CLASS = "text-xs font-mono text-[#93a1b8] uppercase tracking-wide";
 
 /**
- * Turn a Postgres error into something a parent can act on.
+ * Turn the RPC's outcome into something a parent can act on.
  *
- * Three of these are server-side rules with no client equivalent, so this is
- * the only place the visitor learns what happened: the unique index, the
- * capacity/deadline trigger (Phase 5), and the RLS policy that refuses an
- * insert for an unpublished or closed event.
+ * register_for_event() (supabase/02_functions.sql) RETURNS a status rather
+ * than raising, so the ordinary outcomes arrive as data. That is not a style
+ * choice — a raised exception would roll back the rate-limit row along with
+ * everything else, which made failed attempts free and turned the duplicate
+ * check into an unlimited "is this child registered?" oracle.
+ *
+ * So `status` is the normal path and `error` is a genuine fault. Both map
+ * through here, because either way the visitor needs one sentence they can
+ * act on, and this is the only place they learn what happened.
  */
-export function friendlyRegistrationError(error) {
-  const message = error?.message || "";
-  // ALREADY_REGISTERED comes from the capacity trigger (Phase 5 / audit FL-03),
-  // raised ahead of EVENT_FULL/REGISTRATION_CLOSED; 23505 is the unique-index
-  // backstop. Either way the parent is already in.
-  if (
-    /ALREADY_REGISTERED/.test(message) ||
-    error?.code === "23505" ||
-    /duplicate key|unique constraint/i.test(message)
-  ) {
-    return "That child is already registered for this one.";
-  }
-  if (/EVENT_FULL/.test(message)) {
+export function friendlyRegistrationMessage(status, error) {
+  // ALREADY_REGISTERED comes ahead of the closed and full checks (audit
+  // FL-03): a parent who resubmits was previously told "this one is full",
+  // which is both confusing and wrong about what to do next.
+  if (status === "ALREADY_REGISTERED") return "That child is already registered for this one.";
+  if (status === "EVENT_FULL") {
     return "This one is full — every place has gone. Contact us and we'll tell you about the next date.";
   }
-  if (/REGISTRATION_CLOSED/.test(message)) {
-    return "Registration has closed for this one.";
+  if (status === "REGISTRATION_CLOSED") return "Registration has closed for this one.";
+  // The throttle (audit SEC-03). Rare for a real parent, and worth its own
+  // sentence: "something went wrong" would send them round the loop again,
+  // which is the one thing that cannot help.
+  if (status === "RATE_LIMITED") {
+    return "That's a lot of registrations in a short time. Please wait an hour, or contact us and we'll book the places for you.";
   }
-  if (error?.code === "42501" || /row-level security/i.test(message)) {
-    // The insert policy also enforces published + deadline, so a rejection
-    // here almost always means the window shut while the form was open.
-    return "Registration has closed for this one.";
+  if (status === "INVALID_INPUT") return "Please fill in the child's name, your name and your email.";
+
+  const message = error?.message || "";
+  // The unique index is the backstop behind the duplicate check above.
+  if (error?.code === "23505" || /duplicate key|unique constraint/i.test(message)) {
+    return "That child is already registered for this one.";
   }
   return "Something went wrong submitting that. Please try again.";
 }
@@ -74,21 +78,29 @@ export default function EventRegistrationForm({ kind, event, onDone }) {
   // unique per instance or every label would point at the first form's inputs.
   const fid = useId();
 
-  const table = kind === "workshop" ? "workshop_registrations" : "tournament_registrations";
-  const foreignKey = kind === "workshop" ? "workshop_id" : "tournament_id";
-
   async function submit(e) {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const { error: insertError } = await supabase.from(table).insert({
-      [foreignKey]: event.id,
-      user_id: user?.id ?? null,
-      ...form,
+    // One RPC, not a table insert. register_for_event() owns the row lock on
+    // the event, the capacity check inside that lock, the duplicate message
+    // and the rate limit — and the registration tables have no client INSERT
+    // policy, so there is no way round it. Note what is NOT sent: user_id.
+    // The function takes it from auth.uid(), so a forged one is not a thing
+    // that can be attempted.
+    const { data, error: rpcError } = await supabase.rpc("register_for_event", {
+      p_kind: kind === "workshop" ? "workshop" : "tournament",
+      p_event_id: event.id,
+      p_child_name: form.child_name,
+      p_grade: form.grade,
+      p_parent_name: form.parent_name,
+      p_parent_email: form.parent_email,
+      p_parent_phone: form.parent_phone,
+      p_notes: form.notes,
     });
     setLoading(false);
-    if (insertError) {
-      setError(friendlyRegistrationError(insertError));
+    if (rpcError || data?.status !== "OK") {
+      setError(friendlyRegistrationMessage(data?.status, rpcError));
       return;
     }
     onDone();
@@ -128,8 +140,15 @@ export default function EventRegistrationForm({ kind, event, onDone }) {
             onChange={(e) => setForm({ ...form, notes: e.target.value })} className={INPUT_CLASS} />
         </div>
       </div>
+      {/* This used to promise a confirmation email, sent by an Edge Function
+          through Resend. There is no server any more, so there is no email —
+          and a promise the system cannot keep is worse than no promise. The
+          registration is recorded either way, and shows in the parent's
+          dashboard when they are signed in. */}
       <p className="text-xs text-[#93a1b8]">
-        We email the confirmation to the parent's address above.
+        {user
+          ? "We'll contact you on the details above. Your registration also appears on your dashboard."
+          : "We'll contact you on the details above. Sign in before registering and it appears on your dashboard — and for online events, so does the joining link."}
       </p>
       {error && <p className="text-[#f87171] text-sm">{error}</p>}
       <button type="submit" disabled={loading}

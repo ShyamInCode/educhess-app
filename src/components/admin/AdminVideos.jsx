@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import { useAuth } from "../../lib/AuthContext";
-import { getPublicVideoUrl, VIDEO_BUCKET } from "../../lib/media";
+import { VIDEO_BUCKET, getSignedVideoUrl } from "../../lib/media";
 import { ADMIN_VIDEO_CATEGORIES } from "../../data/mockData";
 
 const NEW_CHAPTER_VALUE = "__new_chapter__";
@@ -24,6 +24,22 @@ export default function AdminVideos() {
   const [deletingChapter, setDeletingChapter] = useState(null); // chapter id currently being deleted
   const [savingTier, setSavingTier] = useState(null); // chapter id whose min_tier is being saved
   const [chapterError, setChapterError] = useState("");
+  const [opening, setOpening] = useState(null); // video id whose signed URL is being minted
+
+  /** Mint a short-lived URL and open it. Admins pass the storage policy. */
+  async function openVideo(video) {
+    setChapterError("");
+    setOpening(video.id);
+    try {
+      const signed = await getSignedVideoUrl(video.storage_path);
+      if (signed?.url) window.open(signed.url, "_blank", "noopener,noreferrer");
+      else setChapterError("That video's file is missing from storage.");
+    } catch (err) {
+      setChapterError(err.message || "Couldn't open that video.");
+    } finally {
+      setOpening(null);
+    }
+  }
 
   async function loadChapters(forCategory) {
     setLoadingChapters(true);
@@ -184,15 +200,24 @@ export default function AdminVideos() {
 
       if (uploadError) throw uploadError;
 
-      const publicUrl = getPublicVideoUrl(objectPath);
-
-      // 2. Insert the metadata row — title, category, chapter, public CDN URL.
+      // 2. Insert the metadata row.
+      //
+      // No `url` column any more. It held a public CDN link, which is what
+      // made the paywall cosmetic (audit SEC-02): the bucket was public, so
+      // the link worked for anyone who read it out of the network tab. The
+      // bucket is private now and `storage_path` is the only reference —
+      // every read mints a short-lived signed URL, and only for a caller the
+      // storage policy already allows.
+      //
+      // The path matters: supabase/04_storage.sql looks the object up in this
+      // table by exact `storage_path` to find its chapter and required tier.
+      // A file uploaded to the bucket by any route other than this form has
+      // no row here, and is therefore readable by nobody but an admin.
       setProgressNote("Saving video metadata…");
       const { error: insertError } = await supabase.from("videos").insert({
         title: title.trim(),
         category,
         chapter: chapterTitle,
-        url: publicUrl,
         storage_path: objectPath,
         uploaded_by: user?.id ?? null,
       });
@@ -353,10 +378,17 @@ export default function AdminVideos() {
                 <p className="text-base text-[#e7ecf5] truncate">{v.title}</p>
                 <p className="text-xs font-mono text-[#93a1b8] uppercase tracking-wide">{v.category} · {v.chapter}</p>
               </div>
-              {v.url && (
-                <a href={v.url} target="_blank" rel="noreferrer" className="shrink-0 text-sm font-mono text-[#34d399] hover:text-[#6ee7b7]">
-                  View →
-                </a>
+              {/* There is no stored URL to link to any more — the bucket is
+                  private. Mint one on click instead, which also makes this
+                  button a genuine check that the object is really there. */}
+              {v.storage_path && (
+                <button
+                  onClick={() => openVideo(v)}
+                  disabled={opening === v.id}
+                  className="shrink-0 text-sm font-mono text-[#34d399] hover:text-[#6ee7b7] disabled:opacity-50"
+                >
+                  {opening === v.id ? "Opening…" : "View →"}
+                </button>
               )}
             </div>
           ))}

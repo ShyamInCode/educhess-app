@@ -15,10 +15,19 @@
        and sends no email through Supabase at all, because the address
        arrives already verified.
 
-   Hence the default of `google` alone.
+   The default is `email,google`. Email/password is on because the app is
+   expected to offer it; Google stays because accounts already exist that
+   signed up with it, and dropping the provider would lock those people out
+   of an account they can still see is theirs.
+
+   The SMTP caveat above is real and unchanged — configure custom SMTP before
+   real signup traffic. Auth emails now use Supabase's DEFAULT templates; the
+   branded ones went with the rest of the server side and are archived under
+   docs/archive/auth-email-templates/ if you want them back in the dashboard.
    ============================================================ */
 
 const VALID = ["google", "email", "phone"];
+const DEFAULT_METHODS = ["email", "google"];
 
 function parse(raw) {
   const requested = String(raw || "")
@@ -26,10 +35,12 @@ function parse(raw) {
     .map((s) => s.trim().toLowerCase())
     .filter((s) => VALID.includes(s));
   // A typo in the env var must not lock everyone out of their own site.
-  return requested.length ? requested : ["google"];
+  return requested.length ? requested : DEFAULT_METHODS;
 }
 
-export const AUTH_METHODS = parse(import.meta.env.VITE_AUTH_METHODS ?? "google");
+export const AUTH_METHODS = parse(
+  import.meta.env.VITE_AUTH_METHODS ?? DEFAULT_METHODS.join(",")
+);
 
 export const googleEnabled = AUTH_METHODS.includes("google");
 export const emailEnabled = AUTH_METHODS.includes("email");

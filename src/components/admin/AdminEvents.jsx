@@ -131,14 +131,19 @@ export default function AdminEvents({ kind }) {
       return;
     }
     setEvents(data || []);
-    const { data: regs, error: regError } = await supabase
-      .from(config.registrationTable)
-      .select(config.foreignKey);
-    if (!regError) {
+
+    // One aggregate, not every registration row (audit PERF-01). This used to
+    // download one column for EVERY registration across all events and tally
+    // them in JavaScript, which grows without bound as the academy does.
+    // event_registration_counts() is is_admin()-gated and returns one row per
+    // event.
+    const { data: countRows, error: countError } = await supabase.rpc("event_registration_counts", {
+      p_kind: config.label,
+    });
+    if (!countError) {
       const tally = {};
-      (regs || []).forEach((r) => {
-        const id = r[config.foreignKey];
-        tally[id] = (tally[id] || 0) + 1;
+      (countRows || []).forEach((r) => {
+        tally[r.event_id] = r.registrations;
       });
       setCounts(tally);
     }

@@ -16,8 +16,28 @@
 --      caller may read it — free preview, or tier good enough.
 --   3. The browser calls storage.createSignedUrl(), which requires exactly
 --      one thing: SELECT permission on storage.objects. So the policy in (2)
---      is the whole gate, and a short-lived signed URL is minted only for
---      someone who was already allowed to watch.
+--      is the whole gate, and a signed URL is minted only for someone who was
+--      already allowed to watch AT THAT MOMENT.
+--
+-- READ THAT LAST CLAUSE LITERALLY. The policy is evaluated once, when the URL
+-- is signed, and the resulting URL is a bearer token that nothing re-checks:
+--   * The LIFETIME is chosen by the caller. `expiresIn` is a request
+--     parameter, and with no server in this architecture there is nowhere to
+--     impose a ceiling. src/lib/media.js asks for two hours; that number is
+--     browser code, not a boundary.
+--   * It OUTLIVES the entitlement. A membership lapsing, or an admin calling
+--     admin_set_tier(uid, 'free'), does not invalidate a URL already minted.
+--
+-- So a paying Pro subscriber can legitimately enumerate `videos.storage_path`,
+-- mass-sign every chapter their tier allows with a ten-year expiry, and
+-- publish the list. What this file stops is the ANONYMOUS bypass — the old
+-- hole, where no account was needed at all. What it does not stop is a paying
+-- customer abusing their own access, which is a business risk rather than a
+-- security boundary, and the honest place to say so is here.
+--
+-- Closing it properly needs a server-fixed TTL, which means one Edge Function
+-- — the single piece of deployed code this architecture would ever justify.
+-- That is a deliberate trade, not an oversight.
 --
 -- carousel-images and gallery-images stay PUBLIC on purpose: they are
 -- marketing photos on the logged-out homepage and About page, they want CDN
@@ -47,21 +67,30 @@ on conflict (id) do update set public = true;
 -- readable, testable on its own (`select public.can_read_course_object(
 -- 'chess/Opening-Principles/1706-lesson.mp4')`), and stated once.
 --
--- The object path convention, which this depends on:
---   * bucket root, no slash  -> the seeded marketing/intro clips
---     (homepage.mp4, chess.mp4). These are the hero video and the course
---     introduction; they must play for a logged-out visitor, and they are
---     not what the tiers sell.
---   * category/chapter/file  -> everything the admin panel uploads
+-- Two kinds of object live in this bucket:
+--   * the marketing clips — the homepage hero and the course introduction.
+--     They must play for a logged-out visitor and are not what the tiers
+--     sell. They are named ONE BY ONE below.
+--   * everything the admin panel uploads, at `category/chapter/file`
 --     (AdminVideos builds `${category}/${safeChapter}/${Date.now()}-${name}`).
+--     These are looked up by exact path in `videos`, joined to their chapter,
+--     and compared against the caller's effective tier.
 --
--- For the nested case the object is looked up by exact path in `videos`,
--- joined to its chapter, and compared against the caller's effective tier.
--- Note what the join implies: an object with NO matching `videos` row — a
--- file uploaded straight into the bucket from the dashboard, or one left
--- behind after its row was deleted — is readable by nobody but an admin.
--- That is the intended default. So is a video row whose `chapter` matches no
--- chapter row: unfiled content is treated as paid, not as free.
+-- The allowlist is deliberately a list of names and not a rule about shapes.
+-- The obvious version of this — "an object at the bucket root is public,
+-- anything nested is gated" — reads well and fails badly: the Storage
+-- dashboard's default upload target IS the bucket root, so one drag-and-drop
+-- of a paid lesson by an admin in a hurry would publish it to the world with
+-- nothing anywhere reporting it. A filename is not a permission. Section 6
+-- checks that no unexpected object has appeared at the root.
+--
+-- If you add a marketing clip, add its name here AND to src/data/mockData.js.
+--
+-- Note what the join implies for everything else: an object with NO matching
+-- `videos` row — uploaded straight into the bucket, or left behind after its
+-- row was deleted — is readable by nobody but an admin. So is a video row
+-- whose `chapter` matches no chapter row. Unfiled content is treated as paid,
+-- not as free, which is the right direction to fail in.
 create or replace function public.can_read_course_object(p_name text)
 returns boolean
 language sql
@@ -71,7 +100,7 @@ set search_path = public
 as $$
   select case
     when p_name is null then false
-    when position('/' in p_name) = 0 then true   -- bucket-root marketing clip
+    when p_name in ('homepage.mp4', 'chess.mp4') then true   -- marketing clips
     else exists (
       select 1
         from public.videos v
@@ -219,6 +248,33 @@ begin
   end if;
 
   raise notice 'Storage self-check: course-videos is private and gated; carousel/gallery are public by design.';
+end;
+$$;
+
+-- Any object in course-videos that no rule can account for. Two ways one
+-- appears, both silent: a dashboard upload landing at the bucket root, and a
+-- file whose `videos` row was deleted without deleting the object. Neither is
+-- readable by a client — can_read_course_object() denies both — so this is a
+-- notice, not a failure. Read it: an unexpected root object usually means
+-- somebody uploaded a lesson to the wrong place and is wondering why it will
+-- not play.
+do $$
+declare
+  orphans text;
+begin
+  select string_agg(o.name, ', ' order by o.name)
+    into orphans
+    from storage.objects o
+   where o.bucket_id = 'course-videos'
+     and o.name not in ('homepage.mp4', 'chess.mp4')
+     and not exists (select 1 from public.videos v where v.storage_path = o.name);
+
+  if orphans is not null then
+    raise notice 'Storage notice: % object(s) in course-videos match no videos row and are readable only by admins: %',
+      array_length(string_to_array(orphans, ', '), 1), orphans;
+  else
+    raise notice 'Storage self-check: every object in course-videos is either a named marketing clip or a filed lesson.';
+  end if;
 end;
 $$;
 
