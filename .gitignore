@@ -42,3 +42,15 @@ CLAUDE.md
 lichess_db_puzzle.csv
 lichess_db_puzzle.csv.zst
 *.csv.zst
+
+# --- Video Studio (studio/) ---
+studio/.env
+studio/.work/
+studio/.tmp-preview/
+studio/engine/assets/logo_transparent.png
+studio/**/__pycache__/
+
+# Studio notes kept on this machine only, like CLAUDE.md above. The worker
+# writes its own studio/.env template, so there is no example file to ship.
+docs/STUDIO.md
+studio/README.md

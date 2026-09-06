@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import AdminVideos from "./admin/AdminVideos";
+import AdminStudio from "./admin/AdminStudio";
 import AdminCarousels from "./admin/AdminCarousels";
 import AdminTestimonials from "./admin/AdminTestimonials";
 import AdminGallery from "./admin/AdminGallery";
@@ -10,6 +11,9 @@ import EnquiriesInbox from "./admin/EnquiriesInbox";
 
 const TABS = [
   { key: "videos", label: "Videos", Component: AdminVideos },
+  // The studio makes videos; the Videos tab uploads ones that already
+  // exist. Both end in the same `videos` table and the same bucket.
+  { key: "studio", label: "Video Studio", Component: AdminStudio },
   { key: "carousels", label: "Carousels", Component: AdminCarousels },
   { key: "testimonials", label: "Testimonials", Component: AdminTestimonials },
   { key: "gallery", label: "Gallery", Component: AdminGallery },

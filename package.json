@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "studio:library": "python scripts/check_studio_library.py",
+    "studio:contract": "python scripts/check_studio_contract.py",
+    "studio:worker": "python studio/worker.py",
+    "studio:check": "python studio/worker.py --check"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",

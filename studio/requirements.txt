@@ -1,0 +1,15 @@
+# EduChess Video Studio worker — install with:
+#   pip install -r studio/requirements.txt
+
+chess>=1.11          # board, legality, SVG
+pillow>=10.0         # frame composition, title/outro cards
+cairosvg>=2.7        # SVG -> PNG. Needs the GTK3 runtime on Windows so that
+                     # libcairo-2.dll is on PATH. If that is a fight, install
+                     # svglib and reportlab instead and the engine falls back
+                     # to them automatically.
+edge-tts>=7.0        # narration. Free, no API key, needs an internet connection.
+requests>=2.31       # Supabase REST
+
+# Optional fallback rasteriser, if cairo will not cooperate on Windows:
+# svglib>=1.5
+# reportlab>=4.0
